@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { safeJoin, cmpVersion, satisfies } from '../src/util.js';
@@ -5,7 +6,7 @@ import { parseLibraryFolders, parseBuildId } from '../src/locate.js';
 import { plan, dependents, outdated } from '../src/resolve.js';
 
 test('safeJoin rejects paths that escape the game folder', () => {
-  assert.ok(safeJoin('/g', 'BepInEx/plugins/x.dll').endsWith('BepInEx/plugins/x.dll'));
+  assert.equal(safeJoin('/g', 'BepInEx/plugins/x.dll'), path.join('/g', 'BepInEx', 'plugins', 'x.dll'));
   for (const bad of ['../x', 'a/../../x', '/etc/passwd', 'C:/x', 'a\\b', 'a//b', './a', ''])
     assert.throws(() => safeJoin('/g', bad), /unsafe/, bad);
 });
