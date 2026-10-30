@@ -12,6 +12,11 @@ function stagingDir(gameDir, id) {
   return path.join(gameDir, 'BepInEx', 'tm-manager', 'staging', checkId(id));
 }
 
+// Where a file the player put there by hand goes when an install replaces it.
+// Uninstall moves it back, so removing the manager's Hook doesn't take away the
+// Hook the player's own maps were already using.
+const backupRoot = (gameDir) => path.join(gameDir, 'BepInEx', 'tm-manager', 'backup');
+
 // Remove folders an uninstall emptied. BepInEx and the game recreate any they
 // need (plugins/, Maps/), and keeping them would leave the folder different
 // from before the install.
@@ -28,6 +33,18 @@ async function removeOwned(gameDir, rel, sha256, log) {
   if ((await sha256File(abs)) !== sha256) { log(`  kept ${rel} (changed since install)`); return; }
   await fsp.rm(abs);
   await prune(gameDir, rel);
+}
+
+// Put back the file an install replaced, if nothing has taken its place since.
+async function restoreBackup(gameDir, rel, log) {
+  const saved = safeJoin(backupRoot(gameDir), rel);
+  if (!(await exists(saved))) return;
+  const dest = safeJoin(gameDir, rel);
+  if (await exists(dest)) { log(`  left your earlier ${rel} in ${path.relative(gameDir, saved)}`); return; }
+  await fsp.mkdir(path.dirname(dest), { recursive: true });
+  await fsp.rename(saved, dest);
+  await pruneEmptyDirs(path.dirname(saved), path.join(gameDir, 'BepInEx'));
+  log(`  restored your earlier ${rel}`);
 }
 
 async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log }) {
@@ -56,6 +73,7 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
     }
 
     const placed = {};
+    const replaced = [];
     for (const [rel, f] of Object.entries(files)) {
       const dest = safeJoin(gameDir, rel);
       const staged = safeJoin(stage, rel);
@@ -65,6 +83,15 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
         const ours = prev?.files[rel];
         if (onDisk !== sha && onDisk !== ours) { log(`  kept your ${rel}`); placed[rel] = sha; continue; }
       }
+      // A file no entry owns was put there by hand: keep it to restore on uninstall.
+      if (prev?.replaced?.includes(rel)) replaced.push(rel);
+      else if (!isConfig(rel) && !ownerOf(ledger, rel) && (await exists(dest))) {
+        const saved = safeJoin(backupRoot(gameDir), rel);
+        await fsp.mkdir(path.dirname(saved), { recursive: true });
+        await fsp.rename(dest, saved);
+        replaced.push(rel);
+        log(`  replaced your ${rel} (kept a copy; uninstalling puts it back)`);
+      }
       await fsp.mkdir(path.dirname(dest), { recursive: true });
       await fsp.rename(staged, dest);
       // Executable if the catalog says so or the zip itself marks it (BepInEx's own zip).
@@ -73,7 +100,7 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
       }
       placed[rel] = sha;
     }
-    return placed;
+    return { placed, replaced };
   } finally {
     await fsp.rm(stage, { recursive: true, force: true });
     await pruneEmptyDirs(path.dirname(stage), path.join(gameDir, 'BepInEx'));
@@ -84,19 +111,25 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
 // files: catalog `files` map (install path -> {member, sha256, size, exec}).
 export async function installFiles(gameDir, ledger, { id, version, platform, zip, files }, { force = false, log = console.log } = {}) {
   const prev = ledger.entries[id];
-  const placed = await stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log });
+  const { placed, replaced } = await stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log });
   // Files the previous version had and this one doesn't.
   for (const [rel, sha] of Object.entries(prev?.files || {})) {
-    if (!(rel in placed)) await removeOwned(gameDir, rel, sha, log);
+    if (!(rel in placed)) {
+      await removeOwned(gameDir, rel, sha, log);
+      if (prev.replaced?.includes(rel)) await restoreBackup(gameDir, rel, log);
+    }
   }
-  ledger.entries[id] = { version, platform, files: placed };
+  ledger.entries[id] = { version, platform, files: placed, replaced };
   await writeLedger(gameDir, ledger);
 }
 
 export async function uninstall(gameDir, ledger, id, { log = console.log } = {}) {
   const e = ledger.entries[id];
   if (!e) throw new Error(`"${id}" isn't installed`);
-  for (const [rel, sha] of Object.entries(e.files)) await removeOwned(gameDir, rel, sha, log);
+  for (const [rel, sha] of Object.entries(e.files)) {
+    await removeOwned(gameDir, rel, sha, log);
+    if (e.replaced?.includes(rel)) await restoreBackup(gameDir, rel, log);
+  }
   delete ledger.entries[id];
   await writeLedger(gameDir, ledger);
 }

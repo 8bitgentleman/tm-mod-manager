@@ -25,6 +25,8 @@ export async function writeLedger(gameDir, ledger) {
   const out = { schema: 1, entries: {} };
   for (const [id, e] of Object.entries(sorted(ledger.entries))) {
     out.entries[id] = { version: e.version, platform: e.platform, files: sorted(e.files) };
+    // Hand-installed files this entry replaced (backed up; uninstall restores them).
+    if (e.replaced?.length) out.entries[id].replaced = [...e.replaced].sort();
   }
   const p = ledgerPath(gameDir);
   await fsp.mkdir(path.dirname(p), { recursive: true });

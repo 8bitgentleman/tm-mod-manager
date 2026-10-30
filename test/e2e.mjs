@@ -97,11 +97,16 @@ const sh = await fsp.readFile(path.join(GAME, 'run_bepinex.sh'), 'utf8');
 assert.match(sh, /^executable_name="TrickyMadness.app"$/m);
 assert.equal((await fsp.stat(path.join(GAME, 'run_bepinex.sh'))).mode & 0o777, 0o755);
 assert.match(tmm(['bepinex']), /already installed/);
+// A Hook the player installed by hand, before the manager: installing the pack
+// replaces it, and the uninstall below must put it back (the s1 diff checks that).
+const HAND_HOOK = path.join(GAME, 'BepInEx/plugins/TrickyMaddnessLevelHook.dll');
+await fsp.mkdir(path.dirname(HAND_HOOK), { recursive: true });
+await fsp.writeFile(HAND_HOOK, 'hand-installed hook\n');
 const s1 = await snapshot(GAME);
 console.log(`   ${Object.keys(s1).length - Object.keys(s0).length} paths added`);
 
 step('install blur-ports 1.1 (old catalog) -> pulls in level-hook 2.18.1');
-tmm(['install', 'blur-ports'], { catalog: OLD });
+assert.match(tmm(['install', 'blur-ports'], { catalog: OLD }), /replaced your BepInEx\/plugins\/TrickyMaddnessLevelHook\.dll/);
 tmm(['status'], { catalog: OLD });
 assert.ok(fs.existsSync(path.join(GAME, 'Maps/Blur - only in 1.1.png')));
 assert.equal((await fsp.stat(path.join(GAME, 'BepInEx/plugins/TrickyMaddnessLevelHook.dll'))).mode & 0o777, 0o755);
@@ -118,7 +123,7 @@ assert.match(tmm(['update']), /up to date/);
 step('uninstall: the Hook is refused while the pack needs it');
 assert.throws(() => tmm(['uninstall', 'level-hook']), /need/);
 tmm(['uninstall', 'blur-ports']);
-tmm(['uninstall', 'level-hook']);
+assert.match(tmm(['uninstall', 'level-hook']), /restored your earlier BepInEx\/plugins\/TrickyMaddnessLevelHook\.dll/);
 const d1 = diff(s1, await snapshot(GAME));
 console.log(d1.length ? d1.join('\n') : '   folder matches the BepInEx-only snapshot exactly');
 assert.deepEqual(d1, []);
