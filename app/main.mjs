@@ -19,7 +19,7 @@ import { cacheDir } from '../src/fetch.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
-const DEFAULTS = { gameDir: null, catalog: null, zipsDir: null, showUnreleased: false, showAdvanced: false };
+const DEFAULTS = { gameDir: null, catalog: null, zipsDir: null, showPrerelease: false, showAdvanced: false };
 
 let settings = { ...DEFAULTS };
 let catalog = null;

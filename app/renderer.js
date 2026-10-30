@@ -87,7 +87,8 @@ function badges(e) {
   ];
 }
 
-const visible = () => (S?.entries || []).filter((e) => e.status !== 'unreleased' || S.settings.showUnreleased || e.installed);
+// Only stable entries by default; alpha, beta and unreleased ones need the setting (an installed one always shows, so it can be removed).
+const visible = () => (S?.entries || []).filter((e) => e.status === 'stable' || S.settings.showPrerelease || e.installed);
 
 // --- render ------------------------------------------------------------------
 
@@ -338,7 +339,7 @@ function renderSettings(d) {
       h('div', { class: 'opt' },
         h('div', { class: 'grow' }, h('div', {}, 'Game folder'), h('div', { class: 'help' }, h('code', {}, S.gameDir || 'not found'))),
         h('button', { class: 'btn ghost', onclick: pickGame }, 'Change…')),
-      sw('showUnreleased', 'Show unreleased', 'List work-in-progress entries that aren\'t announced yet.'),
+      sw('showPrerelease', 'Show test versions', 'Also list alpha, beta and unannounced mods and maps. They can be rough or broken.'),
       sw('showAdvanced', 'Show advanced settings', 'Show developer sections (Debug, Probe, Harness…) in each mod\'s settings.'),
       h('div', { class: 'opt' },
         h('div', { class: 'grow' }, h('div', {}, 'Install from a folder of zips'),
