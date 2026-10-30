@@ -1,0 +1,2 @@
+# Config fixtures are compared byte for byte; keep Windows checkouts from converting them to CRLF.
+test/fixtures/** -text
