@@ -248,8 +248,13 @@ app.whenReady().then(async () => {
   if (process.env.TMM_SCREENSHOT) {
     // Test hook: capture the window and quit (used to check the UI without a person).
     setTimeout(async () => {
-      const img = await win.webContents.capturePage();
-      await fsp.writeFile(process.env.TMM_SCREENSHOT, img.toPNG());
+      try {
+        const img = await win.webContents.capturePage();
+        await fsp.writeFile(process.env.TMM_SCREENSHOT, img.toPNG());
+      } catch (e) {
+        console.error(`screenshot failed: ${e.message}`);
+        process.exitCode = 1;
+      }
       app.quit();
     }, Number(process.env.TMM_SCREENSHOT_DELAY || 2500));
   }

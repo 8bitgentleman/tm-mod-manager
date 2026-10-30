@@ -74,6 +74,7 @@ h1 { font-size: 17px; }
 .pill.bad::before { content: "●"; color: var(--badge-alpha); margin-right: 5px; }
 .icon { font-size: 18px; width: 36px; height: 36px; border-radius: 8px; color: var(--ink-2); }
 .icon:hover { background: var(--panel-2); }
+.icon svg { display: block; margin: auto; }
 .play {
   background: var(--play); color: #fff; font-weight: 650; font-size: 15px;
   padding: 10px 22px; border-radius: 10px; box-shadow: var(--shadow);

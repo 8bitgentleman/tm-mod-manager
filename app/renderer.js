@@ -239,7 +239,7 @@ async function renderConfig(d, e) {
       h('button', { class: 'btn ghost', disabled: off, onclick: resetAll }, 'Reset all to defaults'),
       h('span', { class: 'grow' }),
       pending > 0 && h('button', { class: 'btn ghost', onclick: () => { cfg.edits.clear(); renderDrawer(); } }, 'Discard'),
-      h('button', { class: 'btn', disabled: off || pending === 0, onclick: saveCfg }, pending ? `Save ${pending} change${pending === 1 ? '' : 's'}` : 'Saved')),
+      h('button', { class: 'btn', disabled: off || pending === 0, onclick: saveCfg }, working ? 'Saving…' : pending ? `Save ${pending} change${pending === 1 ? '' : 's'}` : 'Saved')),
   );
 }
 
@@ -295,11 +295,21 @@ async function resetAll() {
 }
 
 async function saveCfg() {
-  for (const [file, m] of cfg.edits) {
-    if (!m.size) continue;
-    const edits = [...m].map(([k, value]) => { const [section, key] = k.split('\u0000'); return { section, key, value }; });
-    const ok = await act(() => window.tmm.saveConfig(cfg.id, file, edits));
-    if (ok === undefined) return;
+  if (working) return;
+  // The game-running check before each write can take seconds (tasklist under Wine: 4-7 s),
+  // so lock the footer meanwhile or a second click queues a second save.
+  working = true;
+  renderDrawer();
+  try {
+    for (const [file, m] of cfg.edits) {
+      if (!m.size) continue;
+      const edits = [...m].map(([k, value]) => { const [section, key] = k.split('\u0000'); return { section, key, value }; });
+      const ok = await act(() => window.tmm.saveConfig(cfg.id, file, edits));
+      if (ok === undefined) return;
+    }
+  } finally {
+    working = false;
+    if (cfg) renderDrawer();
   }
   const id = cfg.id;
   cfg = null;
