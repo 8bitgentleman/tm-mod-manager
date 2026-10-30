@@ -1,6 +1,6 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import { safeJoin, exists, sha256File, pruneEmptyDirs } from './util.js';
+import { safeJoin, exists, sha256File, pruneEmptyDirs, checkId } from './util.js';
 import { extractMembers } from './zip.js';
 import { ownerOf, writeLedger } from './ledger.js';
 
@@ -9,7 +9,7 @@ import { ownerOf, writeLedger } from './ledger.js';
 const isConfig = (rel) => rel.endsWith('.cfg');
 
 function stagingDir(gameDir, id) {
-  return path.join(gameDir, 'BepInEx', 'tm-manager', 'staging', id);
+  return path.join(gameDir, 'BepInEx', 'tm-manager', 'staging', checkId(id));
 }
 
 // Remove folders an uninstall emptied. BepInEx and the game recreate any they

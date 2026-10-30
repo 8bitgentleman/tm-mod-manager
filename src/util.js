@@ -53,3 +53,11 @@ export function hostPlatform() {
   if (process.platform === 'win32') return 'windows';
   throw new Error(`unsupported platform ${process.platform}`);
 }
+
+// Catalog ids become folder names (staging) and ledger keys, so they must be
+// plain slugs — an id like "../.." would point a recursive delete outside.
+export const ID_RE = /^[a-z0-9][a-z0-9._-]*$/;
+export function checkId(id) {
+  if (typeof id !== 'string' || !ID_RE.test(id) || id.includes('..')) throw new Error(`bad catalog id ${JSON.stringify(id)}`);
+  return id;
+}

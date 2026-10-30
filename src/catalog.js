@@ -1,4 +1,5 @@
 import fsp from 'node:fs/promises';
+import { checkId } from './util.js';
 
 export const CATALOG_URL =
   'https://raw.githubusercontent.com/8bitgentleman/tm-mod-catalog/main/catalog.json';
@@ -14,6 +15,10 @@ export async function loadCatalog(src = CATALOG_URL) {
   }
   const cat = JSON.parse(text);
   if (cat.schema !== 1) throw new Error(`catalog schema ${cat.schema} is newer than this manager understands`);
+  for (const e of cat.entries) {
+    checkId(e.id);
+    for (const r of Object.keys(e.requires || {})) checkId(r);
+  }
   return cat;
 }
 

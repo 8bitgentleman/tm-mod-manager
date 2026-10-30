@@ -58,3 +58,9 @@ test('dependents and outdated', () => {
   assert.deepEqual(dependents(cat, l, 'level-hook'), ['pack']);
   assert.deepEqual(outdated(cat, l), ['level-hook']);
 });
+
+test('catalog ids must be plain slugs', async () => {
+  const { checkId } = await import('../src/util.js');
+  for (const ok of ['level-hook', 'ssx3-ports', 'a.b_c']) assert.equal(checkId(ok), ok);
+  for (const bad of ['..', '../x', 'a/b', 'A', '', '.x', 'a..b', 'a\\b']) assert.throws(() => checkId(bad));
+});
