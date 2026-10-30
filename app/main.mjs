@@ -54,6 +54,9 @@ async function findGame() {
   let found = null;
   try { ({ gameDir: found, buildId } = await locateGame(platform)); } catch { /* fall back to the saved folder */ }
   const gameDir = process.env.TMM_GAME || settings.gameDir || found;
+  // Steam's build id describes Steam's install only. A copy elsewhere could be
+  // any build, so report none rather than a wrong one (it also mutes the drift badge).
+  if (!(found && gameDir && samePath(found, gameDir))) buildId = null;
   return { gameDir, buildId, steamDir: found };
 }
 
