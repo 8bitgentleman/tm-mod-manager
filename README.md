@@ -33,6 +33,9 @@ it shows a banner with a download link.
 - It records every file it installs in `BepInEx/tm-manager/installed.json`.
   Uninstall removes exactly those files and leaves your edited `.cfg`
   settings alone.
+- A mod or pack you installed by hand counts as installed when its files match
+  the catalog's current version exactly. An older or partial copy shows
+  **Install**.
 - If you had already installed something by hand, it moves your copy into
   `BepInEx/tm-manager/backup/`. Uninstalling puts it back.
 - It won't change files while the game is running.

@@ -443,6 +443,11 @@ function hideProgress() { $('#progress').hidden = true; }
 
 window.tmm.onEvent((ev) => {
   if (ev.type === 'appUpdate') return refresh();
+  if (ev.type === 'adopted') {
+    toast(ev.names.length === 1 ? `${ev.names[0]} was already installed — it's listed as installed now`
+      : `${ev.names.length} mods were already installed — they're listed as installed now`);
+    return working ? undefined : refresh();
+  }
   if (!working) return; // only show progress for an install this window started
   if (ev.type === 'step') showProgress(ev.label.startsWith('Installing') ? `${ev.label}…` : `Downloading ${ev.label}…`, null);
   if (ev.type === 'progress') showProgress(`Downloading ${ev.label}…`, ev.done / ev.total, `${size(ev.done)} of ${size(ev.total)}`);

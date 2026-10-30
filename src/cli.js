@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { loadCatalog, CATALOG_URL } from './catalog.js';
 import { locateGame } from './locate.js';
 import { readLedger } from './ledger.js';
+import { adopt } from './adopt.js';
 import { uninstall } from './install.js';
 import { gameRunning, applySteps } from './ops.js';
 import { plan, dependents, outdated } from './resolve.js';
@@ -19,6 +20,9 @@ commands:
   install <id...>        install mods/packs (and the Level Hook version they need)
   update [id...]         update the named entries, or everything outdated
   uninstall <id>         remove an entry's files (your edited .cfg files are kept)
+
+Every command first records mods you installed by hand, if they match the
+catalog's current version file for file.
 
 options:
   --game <dir>           game folder (default: found through Steam)
@@ -55,6 +59,7 @@ async function main() {
   const gameDir = o.game || (await locateGame(platform)).gameDir;
   const catalog = await loadCatalog(o.catalog || CATALOG_URL);
   const ledger = await readLedger(gameDir);
+  await adopt(catalog, ledger, gameDir, platform, { log: (m) => console.log(m) });
   const writes = ['bepinex', 'install', 'update', 'uninstall'].includes(cmd);
   if (writes && (await gameRunning(platform, gameDir))) throw new Error('quit Tricky Madness first');
 

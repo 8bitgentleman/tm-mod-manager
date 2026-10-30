@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadCatalog, CATALOG_URL, pickBuild } from '../src/catalog.js';
 import { locateGame } from '../src/locate.js';
 import { readLedger } from '../src/ledger.js';
+import { adopt } from '../src/adopt.js';
 import { uninstall } from '../src/install.js';
 import { plan, dependents, outdated } from '../src/resolve.js';
 import { bepinexState, BEPINEX } from '../src/bepinex.js';
@@ -71,11 +72,29 @@ function sourceReady(build) {
   return Boolean(zipsDir() || catalog.sources?.[build.source]?.link);
 }
 
+// Mods installed by hand before the manager: recorded in the background so a
+// first look at a big Maps/ folder (gigabytes to hash) doesn't stall the window.
+// The hash cache makes every later pass a stat per file.
+const hashCache = new Map();
+let adopting = null;
+function scheduleAdopt(gameDir) {
+  if (adopting || busy || !catalog) return;
+  adopting = (async () => {
+    try {
+      const ids = await adopt(catalog, await readLedger(gameDir), gameDir, platform, { cache: hashCache });
+      if (ids.length) send({ type: 'adopted', names: ids.map((id) => catalog.entries.find((e) => e.id === id).name) });
+    } catch { /* a folder we can't read just means nothing adopted */ } finally {
+      adopting = null;
+    }
+  })();
+}
+
 async function getState() {
   const { gameDir, buildId } = await findGame();
   const base = { platform, appVersion: app.getVersion(), appUpdate, settings, catalogError, cacheDir: cacheDir(), bepinexVersion: BEPINEX.version, busy };
   if (!gameDir) return { ...base, gameError: 'Tricky Madness was not found in your Steam libraries. Pick its folder in Settings.' };
   const ledger = await readLedger(gameDir);
+  scheduleAdopt(gameDir);
   const old = new Set(catalog ? outdated(catalog, ledger) : []);
   const entries = (catalog?.entries || []).map((e) => {
     let build = null;
@@ -127,6 +146,7 @@ async function exclusive(fn) {
   if (busy) throw new Error('Another install is still running');
   busy = true;
   try {
+    await adopting; // it writes the ledger too
     const { gameDir } = await findGame();
     if (!gameDir) throw new Error('Pick the game folder in Settings first');
     if (await gameRunning(platform, gameDir)) throw new Error('Quit Tricky Madness first — files can\'t change while it is running');
