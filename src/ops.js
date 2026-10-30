@@ -22,8 +22,12 @@ export async function gameRunning(platform, gameDir) {
         return cmd && (!real || cmd.startsWith(real) || cmd.startsWith(`${gameDir}/`));
       });
     }
-    const { stdout } = await run('tasklist', ['/FI', 'IMAGENAME eq Tricky Madness.exe']);
-    return stdout.includes('Tricky Madness.exe');
+    // Unfiltered and parsed here, because Wine's tasklist ignores /FI and, when piped,
+    // writes UTF-16 (hence the NUL strip). Matches by image name only, so any running
+    // copy counts, not just the one in gameDir.
+    const { stdout } = await run('tasklist', ['/FO', 'CSV', '/NH']);
+    return stdout.replace(/\0/g, '').split(/\r?\n/)
+      .some((line) => line.toLowerCase().startsWith('"tricky madness.exe"'));
   } catch {
     return false; // pgrep exits 1 when nothing matches
   }
