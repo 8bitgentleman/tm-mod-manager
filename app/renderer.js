@@ -128,6 +128,9 @@ function renderBanners() {
   if (upd.length) b.push(h('div', { class: 'banner info' },
     h('span', { class: 'grow' }, `${upd.length} update${upd.length === 1 ? '' : 's'} available: ${upd.map((e) => e.name).join(', ')}`),
     h('button', { class: 'btn', disabled: working || S.running, onclick: () => install(upd.map((e) => e.id), 'update') }, 'Update all')));
+  if (S.appUpdate) b.push(h('div', { class: 'banner info' },
+    h('span', { class: 'grow' }, `Tricky Madness Mods ${S.appUpdate.version} is out (you have ${S.appVersion}).`),
+    h('button', { class: 'btn', onclick: () => act(() => window.tmm.openExternal(S.appUpdate.url)) }, 'Download')));
   if (S.gameDir && S.bepinex === '6.x') b.push(h('div', { class: 'banner err' },
     'This game has BepInEx 6. These mods need BepInEx 5 — remove BepInEx 6 by hand first.'));
   $('#banners').replaceChildren(...b);
@@ -439,6 +442,7 @@ function showProgress(label, frac, text = '') {
 function hideProgress() { $('#progress').hidden = true; }
 
 window.tmm.onEvent((ev) => {
+  if (ev.type === 'appUpdate') return refresh();
   if (!working) return; // only show progress for an install this window started
   if (ev.type === 'step') showProgress(ev.label.startsWith('Installing') ? `${ev.label}…` : `Downloading ${ev.label}…`, null);
   if (ev.type === 'progress') showProgress(`Downloading ${ev.label}…`, ev.done / ev.total, `${size(ev.done)} of ${size(ev.total)}`);

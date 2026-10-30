@@ -12,7 +12,7 @@ import { plan, dependents, outdated } from '../src/resolve.js';
 import { bepinexState, BEPINEX } from '../src/bepinex.js';
 import { gameRunning, applySteps } from '../src/ops.js';
 import { launchGame } from '../src/launch.js';
-import { hostPlatform, exists, safeJoin } from '../src/util.js';
+import { hostPlatform, exists, safeJoin, cmpVersion } from '../src/util.js';
 import { parseCfg, applyEdits, validate, control, isAdvanced } from '../src/config.js';
 import { cacheDir } from '../src/fetch.js';
 
@@ -73,7 +73,7 @@ function sourceReady(build) {
 
 async function getState() {
   const { gameDir, buildId } = await findGame();
-  const base = { platform, settings, catalogError, cacheDir: cacheDir(), bepinexVersion: BEPINEX.version, busy };
+  const base = { platform, appVersion: app.getVersion(), appUpdate, settings, catalogError, cacheDir: cacheDir(), bepinexVersion: BEPINEX.version, busy };
   if (!gameDir) return { ...base, gameError: 'Tricky Madness was not found in your Steam libraries. Pick its folder in Settings.' };
   const ledger = await readLedger(gameDir);
   const old = new Set(catalog ? outdated(catalog, ledger) : []);
@@ -99,6 +99,25 @@ async function getState() {
     running: await gameRunning(platform, gameDir),
     managedBepInEx: Boolean(ledger.entries.bepinex), entries,
   };
+}
+
+// The manager's own update check. It runs here, not in the window: the window's CSP
+// allows no network. A missing repo or no releases yet (404) or no network means "no update".
+const RELEASES_API = process.env.TMM_RELEASES_API || 'https://api.github.com/repos/8bitgentleman/tm-mod-manager/releases/latest';
+let appUpdate = null;
+async function checkAppUpdate() {
+  if (!app.isPackaged && !process.env.TMM_UPDATE_CHECK) return null; // dev runs would always nag
+  try {
+    const r = await fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return null;
+    const rel = await r.json();
+    const version = String(rel.tag_name || '').replace(/^v/, '');
+    if (rel.draft || rel.prerelease || !/^\d+(\.\d+)*$/.test(version)) return null;
+    if (cmpVersion(version, app.getVersion()) <= 0) return null;
+    return { version, url: rel.html_url };
+  } catch {
+    return null;
+  }
 }
 
 const send = (ev) => win?.webContents.send('tmm:event', ev);
@@ -256,6 +275,7 @@ app.whenReady().then(async () => {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   await win.loadFile(path.join(HERE, 'index.html'));
+  checkAppUpdate().then((u) => { appUpdate = u; if (u) send({ type: 'appUpdate' }); });
   if (process.env.TMM_SCREENSHOT) {
     // Test hook: capture the window and quit (used to check the UI without a person).
     setTimeout(async () => {
