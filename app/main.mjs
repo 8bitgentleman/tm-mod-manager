@@ -44,12 +44,17 @@ async function refreshCatalog() {
   try { catalog = await loadCatalog(catalogSrc()); catalogError = null; } catch (e) { catalog = null; catalogError = e.message; }
 }
 
+const samePath = (a, b) => {
+  const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '');
+  return platform === 'windows' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
+};
+
 async function findGame() {
   let buildId = null;
   let found = null;
   try { ({ gameDir: found, buildId } = await locateGame(platform)); } catch { /* fall back to the saved folder */ }
   const gameDir = process.env.TMM_GAME || settings.gameDir || found;
-  return { gameDir, buildId };
+  return { gameDir, buildId, steamDir: found };
 }
 
 function thumbUrl(rel) {
@@ -149,10 +154,13 @@ const handlers = {
   }),
 
   launch: async () => {
-    const { gameDir } = await findGame();
+    const { gameDir, steamDir } = await findGame();
     if ((await bepinexState(gameDir)) === 'none') throw new Error('Install a mod first — that sets up BepInEx, which the mods run on');
     if (await gameRunning(platform, gameDir)) throw new Error('Tricky Madness is already running');
-    return launchGame(gameDir, platform, { openUrl: (u) => shell.openExternal(u) });
+    // Steam's launch URL always starts Steam's own install, so use it only when
+    // that's the folder chosen; any other copy is started from its own exe.
+    const viaSteam = steamDir && samePath(steamDir, gameDir);
+    return launchGame(gameDir, platform, { openUrl: viaSteam ? (u) => shell.openExternal(u) : undefined });
   },
 
   // Settings screen data for one entry: each cfg it declares, parsed, or a note

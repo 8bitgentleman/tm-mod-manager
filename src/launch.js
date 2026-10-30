@@ -28,6 +28,12 @@ export async function launchGame(gameDir, platform, { openUrl } = {}) {
     return 'steam';
   }
   const exe = path.join(gameDir, 'Tricky Madness.exe');
-  spawn(exe, [], { cwd: gameDir, detached: true, stdio: 'ignore' }).unref();
+  // Same SteamAppId guess as the Mac branch.
+  const child = spawn(exe, [], {
+    cwd: gameDir, detached: true, stdio: 'ignore',
+    env: { ...process.env, SteamAppId: APP_ID, SteamGameId: APP_ID },
+  });
+  await new Promise((res, rej) => { child.once('spawn', res); child.once('error', rej); });
+  child.unref();
   return 'exe';
 }
