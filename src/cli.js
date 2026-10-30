@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 // tmm — install, update and remove Tricky Madness mods from the catalog.
 import { parseArgs } from 'node:util';
-import { execFileSync } from 'node:child_process';
 import { loadCatalog, CATALOG_URL } from './catalog.js';
 import { locateGame } from './locate.js';
 import { readLedger } from './ledger.js';
-import fsp from 'node:fs/promises';
-import { fetchBuild, cacheDir } from './fetch.js';
-import { installFiles, uninstall } from './install.js';
+import { uninstall } from './install.js';
+import { gameRunning, applySteps } from './ops.js';
 import { plan, dependents, outdated } from './resolve.js';
 import { ensureBepInEx, bepinexState } from './bepinex.js';
 import { hostPlatform } from './util.js';
@@ -40,13 +38,6 @@ const { values: o, positionals: [cmd, ...ids] } = parseArgs({
   },
 });
 
-function gameRunning(platform) {
-  try {
-    if (platform === 'mac') { execFileSync('pgrep', ['-x', 'TrickyMadness'], { stdio: 'ignore' }); return true; }
-    return execFileSync('tasklist', ['/FI', 'IMAGENAME eq Tricky Madness.exe'], { encoding: 'utf8' }).includes('Tricky Madness.exe');
-  } catch { return false; }
-}
-
 function progress(label) {
   if (!process.stderr.isTTY) return undefined;
   let last = -1;
@@ -65,19 +56,22 @@ async function main() {
   const catalog = await loadCatalog(o.catalog || CATALOG_URL);
   const ledger = await readLedger(gameDir);
   const writes = ['bepinex', 'install', 'update', 'uninstall'].includes(cmd);
-  if (writes && gameRunning(platform)) throw new Error('quit Tricky Madness first');
+  if (writes && (await gameRunning(platform, gameDir))) throw new Error('quit Tricky Madness first');
 
-  const apply = async (steps) => {
-    if (steps.some((s) => s.action !== 'current')) await ensureBepInEx(gameDir, ledger, platform);
-    for (const { entry, build, action } of steps) {
-      if (action === 'current') { console.log(`${entry.name} ${entry.version} is already installed`); continue; }
-      const zip = await fetchBuild(catalog, build, { localDir: o.zips, onProgress: progress(build.file) });
-      const platformKey = Object.keys(entry.builds).find((k) => entry.builds[k] === build);
-      await installFiles(gameDir, ledger, { id: entry.id, version: entry.version, platform: platformKey, zip, files: build.files }, { force: o.force });
-      console.log(`${action === 'install' ? 'Installed' : 'Updated'} ${entry.name} ${entry.version}`);
-      // Packs run to gigabytes; a downloaded zip has done its job once installed.
-      if (zip.startsWith(cacheDir())) await fsp.rm(zip, { force: true });
-    }
+  const apply = (steps) => {
+    let bar;
+    return applySteps({
+      catalog, gameDir, ledger, platform, steps, zipsDir: o.zips, force: o.force,
+      onEvent: (ev) => {
+        if (ev.type === 'progress') (bar ||= progress(ev.label))?.(ev.done, ev.total);
+        if (ev.type === 'step') bar = undefined;
+        if (ev.type === 'done') {
+          const { entry, action } = ev;
+          console.log(action === 'current' ? `${entry.name} ${entry.version} is already installed`
+            : `${action === 'install' ? 'Installed' : 'Updated'} ${entry.name} ${entry.version}`);
+        }
+      },
+    });
   };
 
   switch (cmd) {

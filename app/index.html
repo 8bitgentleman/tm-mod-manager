@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' file: https://raw.githubusercontent.com; connect-src 'none'">
+  <title>Tricky Madness Mods</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">❄</span>
+      <div>
+        <h1>Tricky Madness Mods</h1>
+        <button class="gamepath link" id="gamepath" title="Show the game folder"></button>
+      </div>
+    </div>
+    <div class="status" id="status"></div>
+    <button class="icon" id="open-settings" title="Settings" aria-label="Settings">⚙</button>
+    <button class="play" id="play">▶ Play</button>
+  </header>
+
+  <div id="banners"></div>
+
+  <nav class="tabs" id="tabs">
+    <button data-tab="all" class="on">All</button>
+    <button data-tab="maps">Map packs</button>
+    <button data-tab="plugin">Mods</button>
+    <button data-tab="installed">Installed</button>
+  </nav>
+
+  <main id="grid" class="grid"></main>
+
+  <aside id="detail" class="drawer" hidden></aside>
+  <div id="scrim" class="scrim" hidden></div>
+
+  <div id="progress" class="progress" hidden>
+    <div class="ptext"><span id="plabel"></span><span id="pnum"></span></div>
+    <div class="pbar"><div id="pfill"></div></div>
+  </div>
+
+  <dialog id="modal"></dialog>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
