@@ -95,7 +95,10 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
       await fsp.mkdir(path.dirname(dest), { recursive: true });
       await fsp.rename(staged, dest);
       // Executable if the catalog says so or the zip itself marks it (BepInEx's own zip).
-      if (process.platform !== 'win32') {
+      // Mac only: Windows has no mode bits, and on Linux the game is the Windows
+      // build under Proton, which ignores them — and chmod can fail outright on an
+      // exFAT/NTFS SD card (GUESS from vfat semantics, not tried on a Deck).
+      if (process.platform === 'darwin') {
         await fsp.chmod(dest, f.exec || (got.get(f.member).mode & 0o111) ? 0o755 : 0o644);
       }
       placed[rel] = sha;

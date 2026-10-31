@@ -1,6 +1,6 @@
-# Push a tag like v0.2.0 (matching package.json's version) to build the Mac dmg and
-# the Windows installer and attach both to a draft GitHub Release. Review the draft,
-# then publish it; the app's update check ignores drafts.
+# Push a tag like v0.2.0 (matching package.json's version) to build the Mac dmg, the
+# Windows installer and the Linux AppImage (Steam Deck) and attach them to a draft
+# GitHub Release. Review the draft, then publish it; the app's update check ignores drafts.
 name: release
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
+        os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

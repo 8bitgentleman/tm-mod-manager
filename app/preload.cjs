@@ -23,5 +23,6 @@ contextBridge.exposeInMainWorld('tmm', {
   showFolder: call('showFolder'),
   showLog: call('showLog'),
   copyLog: call('copyLog'),
+  copyText: call('copyText'),
   onEvent: (fn) => ipcRenderer.on('tmm:event', (_e, ev) => fn(ev)),
 });

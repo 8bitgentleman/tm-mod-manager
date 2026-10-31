@@ -18,7 +18,12 @@ import { parseCfg, applyEdits, validate, control, isAdvanced, isAdvancedKey } fr
 import { cacheDir } from '../src/fetch.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const platform = hostPlatform();
+// host: how to find, start and watch the game. platform: which builds to install
+// (Linux installs the Windows ones, for Proton — see hostPlatform()).
+const { os: host, buildPlatform: platform } = hostPlatform();
+// What a Linux player sets by hand in Steam (the game's Properties). Steam rewrites
+// localconfig.vdf while it runs, so the app never edits it for them.
+const LINUX_LAUNCH_OPTION = 'WINEDLLOVERRIDES="winhttp=n,b" %command%';
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const DEFAULTS = { gameDir: null, catalog: null, zipsDir: null, showPrerelease: false, showAdvanced: false };
 
@@ -81,13 +86,13 @@ async function refreshCatalog() {
 
 const samePath = (a, b) => {
   const norm = (p) => path.resolve(p).replace(/[\\/]+$/, '');
-  return platform === 'windows' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
+  return host === 'windows' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
 };
 
 async function findGame() {
   let buildId = null;
   let found = null;
-  try { ({ gameDir: found, buildId } = await locateGame(platform)); } catch { /* fall back to the saved folder */ }
+  try { ({ gameDir: found, buildId } = await locateGame(host)); } catch { /* fall back to the saved folder */ }
   const gameDir = process.env.TMM_GAME || settings.gameDir || found;
   // Steam's build id describes Steam's install only. A copy elsewhere could be
   // any build, so report none rather than a wrong one (it also mutes the drift badge).
@@ -125,7 +130,7 @@ function scheduleAdopt(gameDir) {
 
 async function getState() {
   const { gameDir, buildId } = await findGame();
-  const base = { platform, appVersion: app.getVersion(), appUpdate, settings, catalogError, cacheDir: cacheDir(), bepinexVersion: BEPINEX.version, busy };
+  const base = { platform, host, linuxLaunchOption: LINUX_LAUNCH_OPTION, appVersion: app.getVersion(), appUpdate, settings, catalogError, cacheDir: cacheDir(), bepinexVersion: BEPINEX.version, busy };
   if (!gameDir) return { ...base, gameError: 'Tricky Madness was not found in your Steam libraries. Pick its folder in Settings.' };
   const ledger = await readLedger(gameDir);
   scheduleAdopt(gameDir);
@@ -149,7 +154,9 @@ async function getState() {
   });
   return {
     ...base, gameDir, buildId, bepinex: await bepinexState(gameDir),
-    running: await gameRunning(platform, gameDir),
+    // Linux: no .exe means Steam installed the native Linux build — Proton isn't forced yet.
+    needsProton: host === 'linux' && !(await exists(path.join(gameDir, 'Tricky Madness.exe'))),
+    running: await gameRunning(host, gameDir),
     managedBepInEx: Boolean(ledger.entries.bepinex), entries,
   };
 }
@@ -183,7 +190,7 @@ async function exclusive(fn) {
     await adopting; // it writes the ledger too
     const { gameDir } = await findGame();
     if (!gameDir) throw new Error('Pick the game folder in Settings first');
-    if (await gameRunning(platform, gameDir)) throw new Error('Quit Tricky Madness first — files can\'t change while it is running');
+    if (await gameRunning(host, gameDir)) throw new Error('Quit Tricky Madness first — files can\'t change while it is running');
     return await fn(gameDir);
   } finally {
     busy = false;
@@ -235,11 +242,12 @@ const handlers = {
   launch: async () => {
     const { gameDir, steamDir } = await findGame();
     if ((await bepinexState(gameDir)) === 'none') throw new Error('Install a mod first — that sets up BepInEx, which the mods run on');
-    if (await gameRunning(platform, gameDir)) throw new Error('Tricky Madness is already running');
+    if (await gameRunning(host, gameDir)) throw new Error('Tricky Madness is already running');
     // Steam's launch URL always starts Steam's own install, so use it only when
     // that's the folder chosen; any other copy is started from its own exe.
-    const viaSteam = steamDir && samePath(steamDir, gameDir);
-    return launchGame(gameDir, platform, { openUrl: viaSteam ? (u) => shell.openExternal(u) : undefined });
+    // Linux always goes through Steam: Proton only runs when Steam starts it.
+    const viaSteam = host === 'linux' || (steamDir && samePath(steamDir, gameDir));
+    return launchGame(gameDir, host, { openUrl: viaSteam ? (u) => shell.openExternal(u) : undefined });
   },
 
   // Settings screen data for one entry: each cfg it declares, parsed, or a note
@@ -286,7 +294,10 @@ const handlers = {
     if (r.canceled || !r.filePaths[0]) return getState();
     const dir = r.filePaths[0];
     const marker = platform === 'mac' ? 'TrickyMadness.app' : 'Tricky Madness.exe';
-    if (!(await exists(path.join(dir, marker)))) throw new Error(`That folder has no ${marker} — pick the folder the game is installed in`);
+    if (!(await exists(path.join(dir, marker)))) {
+      if (host === 'linux') throw new Error(`That folder has no ${marker}. If it is the game folder, Steam installed the Linux version: force Proton for Tricky Madness in Steam, let it download, then pick the folder again`);
+      throw new Error(`That folder has no ${marker} — pick the folder the game is installed in`);
+    }
     settings.gameDir = dir;
     await saveSettings();
     return getState();
@@ -317,12 +328,18 @@ const handlers = {
     clipboard.writeText(text.slice(-200000));
     return true;
   },
+  // Only the fixed strings the window shows for Steam setup, never arbitrary text.
+  copyText: async (text) => {
+    if (text !== LINUX_LAUNCH_OPTION) throw new Error('nothing to copy');
+    clipboard.writeText(text);
+    return true;
+  },
   showFolder: async () => { const { gameDir } = await findGame(); if (gameDir) shell.openPath(gameDir); },
 };
 
 // Errors cross IPC as {error} so the window shows our message, not Electron's wrapper.
 // Reads (state, plan, config, the log itself) aren't worth a log line; actions are.
-const QUIET = new Set(['state', 'plan', 'config', 'showLog', 'copyLog', 'showFolder']);
+const QUIET = new Set(['state', 'plan', 'config', 'showLog', 'copyLog', 'copyText', 'showFolder']);
 for (const [name, fn] of Object.entries(handlers)) {
   ipcMain.handle(`tmm:${name}`, async (_e, ...args) => {
     if (!QUIET.has(name)) log(`${name} ${args.map((a) => JSON.stringify(a)).join(' ')}`.trim());
@@ -339,7 +356,7 @@ for (const [name, fn] of Object.entries(handlers)) {
 
 app.whenReady().then(async () => {
   await loadSettings();
-  log(`--- app ${app.getVersion()} started on ${platform} (${process.platform} ${process.arch})`);
+  log(`--- app ${app.getVersion()} started on ${host}, ${platform} builds (${process.platform} ${process.arch})`);
   await refreshCatalog();
   findGame().then(async ({ gameDir, buildId }) => {
     log(`game folder: ${gameDir || 'NOT FOUND'}; Steam build ${buildId || '?'}; BepInEx ${gameDir ? await bepinexState(gameDir) : '-'}`);

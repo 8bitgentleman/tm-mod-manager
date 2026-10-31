@@ -31,6 +31,7 @@ export async function ensureBepInEx(gameDir, ledger, platform, { log = console.l
   if (state === '5.x') return false;
   if (state === '6.x') throw new Error('this game has BepInEx 6 installed; these mods need BepInEx 5');
   const pin = BEPINEX[platform];
+  if (!pin?.file) throw new Error(`no BepInEx build for ${platform}`);
   log(`Installing BepInEx ${BEPINEX.version}…`);
   const zip = await fetchUrl(URL_BASE + pin.file, pin.sha256, pin.size, { onProgress });
   const files = Object.fromEntries((await listMembers(zip)).map((m) => [m, { member: m }]));

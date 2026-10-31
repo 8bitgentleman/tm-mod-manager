@@ -9,7 +9,7 @@ import { uninstall } from './install.js';
 import { gameRunning, applySteps } from './ops.js';
 import { plan, dependents, outdated } from './resolve.js';
 import { ensureBepInEx, bepinexState } from './bepinex.js';
-import { hostPlatform } from './util.js';
+import { hostPlatform, buildPlatformFor } from './util.js';
 
 const USAGE = `usage: tmm [options] <command>
 
@@ -27,7 +27,8 @@ catalog's current version file for file.
 options:
   --game <dir>           game folder (default: found through Steam)
   --catalog <url|file>   catalog to use (default: the published one)
-  --platform mac|windows (default: this computer)
+  --platform mac|windows|linux  the computer the game runs on (default: this one);
+                         linux installs the Windows builds, for Proton
   --zips <dir>           use release zips from this folder instead of MEGA
   --reinstall            install even if this version is already installed
   --force                take over files another entry owns / uninstall a requirement
@@ -54,14 +55,15 @@ function progress(label) {
 
 async function main() {
   if (o.help || !cmd) { console.log(USAGE); return; }
-  const platform = o.platform || hostPlatform();
-  if (!['mac', 'windows'].includes(platform)) throw new Error('--platform must be mac or windows');
-  const gameDir = o.game || (await locateGame(platform)).gameDir;
+  const host = o.platform || hostPlatform().os;
+  if (!['mac', 'windows', 'linux'].includes(host)) throw new Error('--platform must be mac, windows or linux');
+  const platform = buildPlatformFor(host);
+  const gameDir = o.game || (await locateGame(host)).gameDir;
   const catalog = await loadCatalog(o.catalog || CATALOG_URL);
   const ledger = await readLedger(gameDir);
   await adopt(catalog, ledger, gameDir, platform, { log: (m) => console.log(m) });
   const writes = ['bepinex', 'install', 'update', 'uninstall'].includes(cmd);
-  if (writes && (await gameRunning(platform, gameDir))) throw new Error('quit Tricky Madness first');
+  if (writes && (await gameRunning(host, gameDir))) throw new Error('quit Tricky Madness first');
 
   const apply = (steps) => {
     let bar;

@@ -28,7 +28,8 @@ export function findEntry(cat, id) {
   return e;
 }
 
-// The build for this platform, or the platform-neutral one.
+// The build for this platform, or the platform-neutral one. platform is the
+// build key ('mac' | 'windows'), never 'linux' — see hostPlatform().
 export function pickBuild(entry, platform) {
   const b = entry.builds[platform] || entry.builds.any;
   if (!b) throw new Error(`${entry.name} has no ${platform} build`);

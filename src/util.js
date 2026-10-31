@@ -48,11 +48,18 @@ export function satisfies(version, range) {
   return cmpVersion(version, m[1]) >= 0;
 }
 
-export function hostPlatform() {
-  if (process.platform === 'darwin') return 'mac';
-  if (process.platform === 'win32') return 'windows';
-  throw new Error(`unsupported platform ${process.platform}`);
+// os: where this app runs ('mac' | 'windows' | 'linux') — decides how to find
+// Steam, start the game and spot it running.
+// buildPlatform: which catalog build and BepInEx flavour to install. Linux
+// (Steam Deck) plays the WINDOWS build under Proton: no mod or bundle has a
+// native Linux build, and the Hook's shader remap is lossy on Vulkan/GL.
+export function hostPlatform(nodePlatform = process.platform) {
+  const os = { darwin: 'mac', win32: 'windows', linux: 'linux' }[nodePlatform];
+  if (!os) throw new Error(`unsupported platform ${nodePlatform}`);
+  return { os, buildPlatform: buildPlatformFor(os) };
 }
+
+export const buildPlatformFor = (os) => (os === 'linux' ? 'windows' : os);
 
 // Catalog ids become folder names (staging) and ledger keys, so they must be
 // plain slugs — an id like "../.." would point a recursive delete outside.

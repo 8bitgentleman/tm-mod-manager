@@ -9,6 +9,7 @@ import { exists, sha256File } from './util.js';
 export function cacheDir() {
   if (process.env.TMM_CACHE) return process.env.TMM_CACHE;
   if (process.platform === 'win32') return path.join(process.env.LOCALAPPDATA || os.homedir(), 'tm-mod-manager', 'Cache');
+  if (process.platform === 'linux') return path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'tm-mod-manager');
   return path.join(os.homedir(), 'Library', 'Caches', 'tm-mod-manager');
 }
 

@@ -123,10 +123,27 @@ function playHint() {
   if (S.running) return 'Game is running';
   if (working) return 'Wait for the install to finish';
   if (S.bepinex !== '5.x') return 'Install a mod first';
+  if (S.host === 'linux') return S.needsProton ? 'Set Steam to Proton first' : 'Starts through Steam';
   return S.platform === 'mac' ? 'Mods only load when you start here' : '';
 }
 
 const anyInstalled = () => (S.entries || []).some((e) => e.installed);
+
+// Linux / Steam Deck: the mods are Windows mods, run through Proton. Two Steam
+// settings make that work, and the player sets both by hand — the app can't
+// change Steam's settings safely while Steam is open.
+function linuxSteps() {
+  const copy = async () => { if (await act(() => window.tmm.copyText(S.linuxLaunchOption))) toast('Copied. Paste it into Launch Options.'); };
+  return h('ol', {},
+    h('li', {}, 'In Steam, right-click Tricky Madness → Properties → Compatibility. Tick ',
+      h('strong', {}, 'Force the use of a specific Steam Play compatibility tool'),
+      ' and pick Proton. Steam then downloads the Windows version of the game, which is the one the mods are made for.',
+      S.needsProton && h('div', { class: 'meta' }, 'Not done yet: this game folder still has the Linux version.')),
+    h('li', {}, 'In the same Properties window, under General → Launch Options, paste this line:',
+      h('div', { class: 'copyline' }, h('code', {}, S.linuxLaunchOption),
+        h('button', { class: 'btn ghost', onclick: copy }, 'Copy'))),
+    h('li', {}, 'Start the game with ▶ Play here or from Steam — both go through Steam, so either works.'));
+}
 
 function renderBanners() {
   const b = [];
@@ -140,6 +157,9 @@ function renderBanners() {
         ? h('li', {}, h('strong', {}, 'On a Mac, always start the game with this app\'s Play button.'), ' Starting it from Steam runs the game without any mods.')
         : h('li', {}, 'To go back to the normal game, remove the mods from the Installed tab.')),
     h('span', { class: 'meta' }, 'The first install also adds BepInEx, a small mod loader that the mods need.')));
+  if (S.host === 'linux' && S.gameDir && (S.needsProton || !anyInstalled())) b.push(h('div', { class: 'banner info welcome' },
+    h('strong', {}, 'Steam Deck / Linux: two Steam settings first'),
+    linuxSteps()));
   if (S.gameError) b.push(h('div', { class: 'banner err' }, h('span', { class: 'grow' }, S.gameError),
     h('button', { class: 'btn', onclick: pickGame }, 'Choose folder…')));
   if (S.catalogError) b.push(h('div', { class: 'banner err' }, h('span', { class: 'grow' }, `Couldn't load the mod list: ${S.catalogError}`),
@@ -392,6 +412,8 @@ function renderSettings(d) {
         S.settings.zipsDir
           ? h('button', { class: 'btn ghost', onclick: async () => { S = (await act(() => window.tmm.setSetting('zipsDir', null))) || S; render(); } }, 'Turn off')
           : h('button', { class: 'btn ghost', onclick: async () => { S = (await act(() => window.tmm.pickZips())) || S; render(); } }, 'Choose…')),
+      S.host === 'linux' && h('div', { class: 'opt' },
+        h('div', { class: 'grow' }, h('div', {}, 'Steam Deck / Linux setup'), h('div', { class: 'help' }, linuxSteps()))),
       h('div', { class: 'opt' },
         h('div', { class: 'grow' }, h('div', {}, 'Download cache'), h('div', { class: 'help' }, h('code', {}, S.cacheDir),
           h('br'), 'Half-finished downloads wait here so they can resume. Finished packs are deleted once installed.'))),

@@ -10,11 +10,17 @@ import { ensureBepInEx } from './bepinex.js';
 // Is the game in gameDir running? Mac matches the executable's path, so a game
 // running from another install folder doesn't count (the process is named
 // "Tricky Madness", with a space). Windows matches the exe name only — GUESS,
-// untested, and it can't tell two installs apart.
-export async function gameRunning(platform, gameDir) {
-  const run = promisify(execFile);
+// untested, and it can't tell two installs apart. Linux (Proton) matches the
+// exe name anywhere in a command line — Proton's own wrappers carry it too,
+// which is still "running" — and, like Windows, any install counts (untested
+// on a Deck). os is the host OS; run is injectable for tests.
+export async function gameRunning(os_, gameDir, { run = promisify(execFile) } = {}) {
   try {
-    if (platform === 'mac') {
+    if (os_ === 'linux') {
+      const { stdout } = await run('pgrep', ['-f', 'Tricky Madness\\.exe']);
+      return stdout.trim() !== '';
+    }
+    if (os_ === 'mac') {
       const { stdout } = await run('pgrep', ['-fl', 'MacOS/Tricky Madness']);
       const real = gameDir ? `${await fsp.realpath(gameDir)}/` : null;
       return stdout.split('\n').some((line) => {
