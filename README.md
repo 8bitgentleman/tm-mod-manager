@@ -1,6 +1,6 @@
 # Tricky Madness Mods
 
-A desktop app (Mac and Windows) that installs, updates and removes
+A desktop app (Mac, Windows and Steam Deck) that installs, updates and removes
 [Tricky Madness](https://store.steampowered.com/app/2743850/) mods and map packs.
 It installs BepInEx for you, picks up the Level Hook version each map pack
 needs, edits each mod's settings, and can put back files it replaced.
@@ -16,12 +16,49 @@ Download the latest release from the
 
 - **Mac:** `TrickyMadnessMods-<version>-mac.dmg`. It works on Apple Silicon and Intel Macs.
 - **Windows:** `TrickyMadnessMods-<version>-win.exe`
+- **Steam Deck / Linux:** `TrickyMadnessMods-<version>-linux.AppImage` (see below)
 
 The app is not code-signed, so the first launch gets a warning:
 
 - **Mac:** open it once, then go to System Settings → Privacy & Security and
   click **Open Anyway**.
 - **Windows:** on the SmartScreen prompt, click **More info**, then **Run anyway**.
+
+### Steam Deck
+
+> Not tested on a Deck yet. If you try it, please report back on the Discord,
+> whether it works or not.
+
+The mods are made for the Windows version of Tricky Madness, so on a Deck the
+game runs through Proton (Steam's tool for running Windows games). The app
+installs the Windows mods for you; you change two settings in Steam yourself.
+
+1. **Switch to Desktop Mode.** Hold the power button → **Switch to Desktop**.
+   A mouse and keyboard help a lot; **Steam + X** opens the on-screen keyboard.
+2. **Download the app.** In Firefox, open the
+   [Releases page](https://github.com/8bitgentleman/tm-mod-manager/releases) and
+   download the `.AppImage` file. It is the whole app — there's nothing to install.
+3. **Let it run.** In the file manager, right-click the file → **Properties →
+   Permissions** → tick **Is executable**. Then double-click it.
+4. **Change two Steam settings.** Right-click Tricky Madness in Steam →
+   **Properties**:
+   - **Compatibility:** tick **Force the use of a specific Steam Play
+     compatibility tool** and pick Proton. Steam then downloads the Windows
+     version of the game.
+   - **General → Launch Options:** paste this line (the app has a Copy button for it):
+     ```
+     WINEDLLOVERRIDES="winhttp=n,b" %command%
+     ```
+     Without it the mod loader never starts, and the game runs with no mods.
+5. **Install mods** in the app, as on any computer.
+6. **Play.** Double-click **Return to Gaming Mode** on the desktop and start
+   the game from your library as usual — the mods load. You only need Desktop
+   Mode again to install or update mods.
+
+The app has to run on the Deck itself: a Deck plugged into a computer doesn't
+show up as a drive, so mods can't be installed from another machine.
+
+### Updates
 
 The app checks this repo for a newer release when it starts. When one exists,
 it shows a banner with a download link.
@@ -81,8 +118,8 @@ Useful environment variables:
    ```bash
    git tag v0.2.0 && git push origin v0.2.0
    ```
-3. GitHub Actions builds the Mac dmg and the Windows installer, then attaches
-   both to a **draft** release.
+3. GitHub Actions builds the Mac dmg, the Windows installer and the Linux
+   AppImage, then attaches them to a **draft** release.
 4. Check the draft and publish it. Apps already installed only see the release
    once it is published.
 
