@@ -1,6 +1,6 @@
 // Electron main process: a thin IPC layer over the engine in ../src. All file
 // and network work happens here; the window only renders what getState returns.
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,13 +14,47 @@ import { bepinexState, BEPINEX } from '../src/bepinex.js';
 import { gameRunning, applySteps } from '../src/ops.js';
 import { launchGame } from '../src/launch.js';
 import { hostPlatform, exists, safeJoin, cmpVersion } from '../src/util.js';
-import { parseCfg, applyEdits, validate, control, isAdvanced } from '../src/config.js';
+import { parseCfg, applyEdits, validate, control, isAdvanced, isAdvancedKey } from '../src/config.js';
 import { cacheDir } from '../src/fetch.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const platform = hostPlatform();
 const SETTINGS_FILE = () => path.join(app.getPath('userData'), 'settings.json');
 const DEFAULTS = { gameDir: null, catalog: null, zipsDir: null, showPrerelease: false, showAdvanced: false };
+
+// A plain-text history a tester can send back: what was installed, removed,
+// launched, and every error in full (the window shows a friendlier version).
+const LOG_FILE = () => path.join(app.getPath('userData'), 'tmm.log');
+const LOG_MAX = 1e6;
+let logQueue = Promise.resolve();
+function log(line) {
+  const text = `${new Date().toISOString()}  ${line}\n`;
+  logQueue = logQueue.then(async () => {
+    try {
+      const st = await fsp.stat(LOG_FILE()).catch(() => null);
+      if (st && st.size > LOG_MAX) await fsp.rename(LOG_FILE(), `${LOG_FILE()}.old`);
+      await fsp.mkdir(path.dirname(LOG_FILE()), { recursive: true });
+      await fsp.appendFile(LOG_FILE(), text);
+    } catch { /* a log we can't write must never break an install */ }
+  });
+  return logQueue;
+}
+
+// Engine errors are written for developers; say what they mean to a player.
+// The original message still goes to the log.
+function plain(msg) {
+  const m = String(msg);
+  if (/catalog download failed|fetch failed|ENOTFOUND|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN/i.test(m))
+    return 'Couldn\'t connect to the internet. Check your connection and try again.';
+  if (/schema .* newer than this manager/.test(m)) return 'The mod list needs a newer version of this app. Download the latest one and try again.';
+  if (/catalog is out of date|isn't shared on MEGA yet/.test(m)) return 'This download isn\'t available right now. Close and reopen the app; if it still fails, tell the mod\'s author.';
+  if (/download is corrupt/.test(m)) return 'The download got damaged on the way and was thrown away. Press the button again to retry.';
+  if (/already belongs to/.test(m)) return 'Another mod already uses one of these files, so nothing was changed. Ask the mod\'s author which one to keep.';
+  if (/does not match the catalog hash|zip is missing/.test(m)) return 'A downloaded file wasn\'t what the mod list expected, so nothing was changed. Tell the mod\'s author.';
+  if (/EACCES|EPERM/.test(m)) return 'The computer wouldn\'t let the app change the game folder. Close the game and any open game files, then try again.';
+  if (/ENOSPC/.test(m)) return 'Your disk is full. Free up some space and try again.';
+  return m;
+}
 
 let settings = { ...DEFAULTS };
 let catalog = null;
@@ -42,7 +76,7 @@ const catalogSrc = () => process.env.TMM_CATALOG || settings.catalog || CATALOG_
 const zipsDir = () => process.env.TMM_ZIPS || settings.zipsDir || undefined;
 
 async function refreshCatalog() {
-  try { catalog = await loadCatalog(catalogSrc()); catalogError = null; } catch (e) { catalog = null; catalogError = e.message; }
+  try { catalog = await loadCatalog(catalogSrc()); catalogError = null; } catch (e) { catalog = null; catalogError = plain(e.message); log(`mod list failed: ${e.message}`); }
 }
 
 const samePath = (a, b) => {
@@ -178,7 +212,10 @@ const handlers = {
     const steps = plan(catalog, ledger, ids, platform, { reinstall });
     await applySteps({
       catalog, gameDir, ledger, platform, steps, zipsDir: zipsDir(),
-      onEvent: (ev) => send({ type: ev.type, label: ev.label, action: ev.action, id: ev.entry?.id, done: ev.done, total: ev.total }),
+      onEvent: (ev) => {
+        if (ev.type === 'step') log(`  ${ev.label}${ev.index ? ` (${ev.index} of ${ev.count})` : ''}`);
+        send({ type: ev.type, label: ev.label, action: ev.action, id: ev.entry?.id, done: ev.done, total: ev.total, index: ev.index, count: ev.count });
+      },
     });
     return getState();
   }),
@@ -191,7 +228,7 @@ const handlers = {
       throw new Error(`${names.join(', ')} need${deps.length === 1 ? 's' : ''} this. Remove ${deps.length === 1 ? 'it' : 'them'} first.`);
     }
     const notes = [];
-    await uninstall(gameDir, ledger, id, { log: (m) => notes.push(m) });
+    await uninstall(gameDir, ledger, id, { log: (m) => { notes.push(m); log(`  ${m}`); } });
     return { state: await getState(), notes };
   }),
 
@@ -219,7 +256,7 @@ const handlers = {
         name,
         sections: parsed.sections.map((s) => ({
           name: s.name, advanced: isAdvanced(s.name),
-          settings: s.settings.map((st) => ({ ...st, control: control(st) })),
+          settings: s.settings.map((st) => ({ ...st, control: control(st), advanced: isAdvancedKey(st.key) })),
         })),
       });
     }
@@ -273,19 +310,44 @@ const handlers = {
     if (!/^https:\/\//.test(url)) throw new Error('only https links open');
     return shell.openExternal(url);
   },
+  showLog: async () => { await log('log opened'); shell.showItemInFolder(LOG_FILE()); },
+  copyLog: async () => {
+    await log('log copied');
+    const text = await fsp.readFile(LOG_FILE(), 'utf8').catch(() => '');
+    clipboard.writeText(text.slice(-200000));
+    return true;
+  },
   showFolder: async () => { const { gameDir } = await findGame(); if (gameDir) shell.openPath(gameDir); },
 };
 
 // Errors cross IPC as {error} so the window shows our message, not Electron's wrapper.
+// Reads (state, plan, config, the log itself) aren't worth a log line; actions are.
+const QUIET = new Set(['state', 'plan', 'config', 'showLog', 'copyLog', 'showFolder']);
 for (const [name, fn] of Object.entries(handlers)) {
   ipcMain.handle(`tmm:${name}`, async (_e, ...args) => {
-    try { return { ok: await fn(...args) }; } catch (e) { return { error: e.message }; }
+    if (!QUIET.has(name)) log(`${name} ${args.map((a) => JSON.stringify(a)).join(' ')}`.trim());
+    try {
+      const ok = await fn(...args);
+      if (!QUIET.has(name)) log(`${name} ok`);
+      return { ok };
+    } catch (e) {
+      log(`${name} FAILED: ${e.stack || e.message}`);
+      return { error: plain(e.message) };
+    }
   });
 }
 
 app.whenReady().then(async () => {
   await loadSettings();
+  log(`--- app ${app.getVersion()} started on ${platform} (${process.platform} ${process.arch})`);
   await refreshCatalog();
+  findGame().then(async ({ gameDir, buildId }) => {
+    log(`game folder: ${gameDir || 'NOT FOUND'}; Steam build ${buildId || '?'}; BepInEx ${gameDir ? await bepinexState(gameDir) : '-'}`);
+    if (gameDir) {
+      const l = await readLedger(gameDir);
+      log(`installed: ${Object.entries(l.entries).map(([id, e]) => `${id} ${e.version}`).join(', ') || 'nothing'}`);
+    }
+  }).catch((e) => log(`startup check failed: ${e.message}`));
   win = new BrowserWindow({
     width: 1180, height: 780, minWidth: 820, minHeight: 560,
     title: 'Tricky Madness Mods',

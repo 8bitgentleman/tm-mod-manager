@@ -38,7 +38,8 @@ function toast(msg, err = false) {
   t.className = `toast${err ? ' err' : ''}`;
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.hidden = true; }, err ? 7000 : 3500);
+  // Errors stay long enough for a slow reader; a click dismisses any toast.
+  toastTimer = setTimeout(() => { t.hidden = true; }, err ? 20000 : 5000);
 }
 
 // A modal that resolves to true (confirm) or false.
@@ -100,22 +101,45 @@ function render() {
 
   const pills = [];
   if (S.gameDir) {
-    const be = S.bepinex === '5.x' ? ['ok', 'BepInEx ready'] : S.bepinex === '6.x' ? ['bad', 'BepInEx 6 — unsupported'] : ['off', 'BepInEx not installed'];
-    pills.push(h('span', { class: `pill ${be[0]}`, title: S.bepinex === 'none' ? 'Installed for you with your first mod' : '' }, be[1]));
+    // BepInEx is the mod loader. Before the first install it simply isn't needed yet.
+    const be = S.bepinex === '5.x' ? ['ok', 'Mod loader ready'] : S.bepinex === '6.x' ? ['bad', 'Wrong mod loader (BepInEx 6)'] : ['', 'No mods yet'];
+    pills.push(h('span', { class: `pill ${be[0]}`, title: 'BepInEx, the mod loader. It is set up for you with your first install.' }, be[1]));
     if (S.buildId) pills.push(h('span', { class: 'pill', title: 'Tricky Madness build (from Steam)' }, `TM build ${S.buildId}`));
     if (S.running) pills.push(h('span', { class: 'pill ok' }, 'Game running'));
   }
   $('#status').replaceChildren(...pills);
   $('#play').disabled = !S.gameDir || S.running || S.bepinex !== '5.x' || working;
-  $('#play').title = S.bepinex !== '5.x' ? 'Install a mod first' : '';
+  $('#playhint').textContent = playHint();
 
   renderBanners();
   renderGrid();
   if (openId || view === 'settings') renderDrawer();
 }
 
+// Visible text under Play, so nobody has to hover to learn why it's greyed out.
+function playHint() {
+  if (!S.gameDir) return 'Find the game folder first';
+  if (S.bepinex === '6.x') return '';
+  if (S.running) return 'Game is running';
+  if (working) return 'Wait for the install to finish';
+  if (S.bepinex !== '5.x') return 'Install a mod first';
+  return S.platform === 'mac' ? 'Mods only load when you start here' : '';
+}
+
+const anyInstalled = () => (S.entries || []).some((e) => e.installed);
+
 function renderBanners() {
   const b = [];
+  // First run: nothing installed yet. Say the whole path once, in order.
+  if (S.gameDir && S.bepinex === 'none' && !anyInstalled()) b.push(h('div', { class: 'banner info welcome' },
+    h('strong', {}, 'New to mods? Here\'s how it works:'),
+    h('ol', {},
+      h('li', {}, 'Click a map pack or mod below, then press Install. The app downloads it and puts it in the right place.'),
+      h('li', {}, 'Press ▶ Play at the top right to start Tricky Madness with your mods.'),
+      S.platform === 'mac'
+        ? h('li', {}, h('strong', {}, 'On a Mac, always start the game with this app\'s Play button.'), ' Starting it from Steam runs the game without any mods.')
+        : h('li', {}, 'To go back to the normal game, remove the mods from the Installed tab.')),
+    h('span', { class: 'meta' }, 'The first install also adds BepInEx, a small mod loader that the mods need.')));
   if (S.gameError) b.push(h('div', { class: 'banner err' }, h('span', { class: 'grow' }, S.gameError),
     h('button', { class: 'btn', onclick: pickGame }, 'Choose folder…')));
   if (S.catalogError) b.push(h('div', { class: 'banner err' }, h('span', { class: 'grow' }, `Couldn't load the mod list: ${S.catalogError}`),
@@ -123,7 +147,7 @@ function renderBanners() {
   const drift = visible().filter((e) => e.drift);
   if (drift.length) b.push(h('div', { class: 'banner' }, h('span', { class: 'grow' },
     `Tricky Madness has updated since ${drift.map((e) => e.name).join(', ')} ${drift.length === 1 ? 'was' : 'were'} last tested. `
-    + 'They may still work — if something breaks, check Discord for a new version.')));
+    + 'They will probably still work. If something breaks, ask on the Tricky Madness Discord whether a fix is coming.')));
   const upd = visible().filter((e) => e.outdated && e.available);
   if (upd.length) b.push(h('div', { class: 'banner info' },
     h('span', { class: 'grow' }, `${upd.length} update${upd.length === 1 ? '' : 's'} available: ${upd.map((e) => e.name).join(', ')}`),
@@ -198,7 +222,7 @@ function renderDrawer() {
         h('dt', {}, 'Version'), h('dd', {}, `v${e.version}`),
         h('dt', {}, 'Installed'), h('dd', {}, e.installed ? `v${e.installed}` : 'No'),
         e.size != null && [h('dt', {}, 'Download'), h('dd', {}, `${size(e.size)} · ${e.fileCount} files`)],
-        reqs.length && [h('dt', {}, 'Needs'), h('dd', {}, `${reqs.join(', ')} — installed for you`)],
+        reqs.length > 0 && [h('dt', {}, 'Needs'), h('dd', {}, `${reqs.join(', ')} — installed for you`)],
         h('dt', {}, 'By'), h('dd', {}, e.author),
         !e.available && [h('dt', {}, 'Status'), h('dd', {}, e.unavailableReason)])),
     h('footer', {}, ...foot),
@@ -224,14 +248,15 @@ async function renderConfig(d, e) {
         h('p', { class: 'meta' }, 'Launch the game once to create this mod\'s settings, then come back.')));
       continue;
     }
-    const sections = f.sections.filter((s) => s.settings.length && (showAdv || !s.advanced));
-    const hidden = f.sections.filter((s) => s.advanced && s.settings.length).length;
+    const shown = (s) => s.settings.filter((st) => showAdv || !st.advanced);
+    const sections = f.sections.filter((s) => shown(s).length && (showAdv || !s.advanced));
+    const hidden = showAdv ? 0 : f.sections.reduce((n, s) => n + (s.advanced ? s.settings.length : s.settings.filter((st) => st.advanced).length), 0);
     body.push(h('div', { class: 'cfg-file' },
       cfg.files.length > 1 && h('h3', {}, f.name),
       sections.map((s, i) => h('details', { class: 'cfg-section', open: i < 3 || sections.length <= 4 },
         h('summary', {}, s.name || 'General', s.advanced && h('span', { class: 'badge unreleased' }, 'advanced')),
-        s.settings.map((st) => settingRow(f.name, s.name, st)))),
-      !showAdv && hidden > 0 && h('p', { class: 'meta' }, `${hidden} developer section${hidden === 1 ? ' is' : 's are'} hidden. Turn on "Show advanced settings" in Settings to see ${hidden === 1 ? 'it' : 'them'}.`)));
+        shown(s).map((st) => settingRow(f.name, s.name, st)))),
+      hidden > 0 && h('p', { class: 'meta' }, `${hidden} setting${hidden === 1 ? ' is' : 's are'} hidden because ${hidden === 1 ? 'it is' : 'they are'} for mod developers and can break things. Turn on "Show advanced settings" in Settings to see ${hidden === 1 ? 'it' : 'them'}.`)));
   }
   const pending = [...cfg.edits.values()].reduce((n, m) => n + m.size, 0);
   const off = working || S.running;
@@ -282,11 +307,28 @@ function settingRow(file, section, st) {
       min: st.range?.min, max: st.range?.max, onchange: (ev) => update(ev.target.value) });
   }
   const canReset = st.default != null && val !== st.default;
+  const [lead, rest] = splitHelp(st.description);
   return h('div', { class: `setting${changed ? ' changed' : ''}` },
-    h('div', { class: 'name' }, st.key),
+    h('div', { class: 'name', title: `${section} / ${st.key}` }, label(st.key)),
     h('div', { class: 'ctl' }, ctl, canReset && h('button', { class: 'reset', title: `Default: ${st.default}`, onclick: () => update(st.default) }, 'Reset')),
-    st.description && h('div', { class: 'help' }, st.description),
+    lead && h('div', { class: 'help' }, lead),
+    rest && h('details', { class: 'more' }, h('summary', {}, 'More'), h('div', {}, rest)),
     st.type == null && h('div', { class: 'help' }, 'Left over from an older version of the mod — probably unused.'));
+}
+
+// "RedirectResourcesLoad" -> "Redirect resources load"; acronyms stay ("AI brace points").
+function label(key) {
+  const words = String(key).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').split(' ');
+  return words.map((w, i) => (w === 'Ai' ? 'AI' : i === 0 || /^[A-Z0-9]{2,}$/.test(w) ? w : w.toLowerCase())).join(' ');
+}
+
+// Mod descriptions are written for whoever reads the cfg file and can run to a
+// paragraph. Show the first sentence; the rest goes behind "More".
+function splitHelp(text) {
+  if (!text) return ['', ''];
+  const m = /^(.+?[.!?])\s+(?=[A-Z0-9⚠(])/s.exec(text);
+  if (!m || m[1].length < 12) return [text, ''];
+  return [m[1], text.slice(m[0].length)];
 }
 
 async function resetAll() {
@@ -343,7 +385,7 @@ function renderSettings(d) {
         h('div', { class: 'grow' }, h('div', {}, 'Game folder'), h('div', { class: 'help' }, h('code', {}, S.gameDir || 'not found'))),
         h('button', { class: 'btn ghost', onclick: pickGame }, 'Change…')),
       sw('showPrerelease', 'Show test versions', 'Also list alpha, beta and unannounced mods and maps. They can be rough or broken.'),
-      sw('showAdvanced', 'Show advanced settings', 'Show developer sections (Debug, Probe, Harness…) in each mod\'s settings.'),
+      sw('showAdvanced', 'Show advanced settings', 'Also show settings meant for mod developers. Changing them can stop a mod working.'),
       h('div', { class: 'opt' },
         h('div', { class: 'grow' }, h('div', {}, 'Install from a folder of zips'),
           h('div', { class: 'help' }, S.settings.zipsDir ? h('code', {}, S.settings.zipsDir) : 'Off: downloads come from MEGA. For mod authors testing their own release zips.')),
@@ -354,8 +396,13 @@ function renderSettings(d) {
         h('div', { class: 'grow' }, h('div', {}, 'Download cache'), h('div', { class: 'help' }, h('code', {}, S.cacheDir),
           h('br'), 'Half-finished downloads wait here so they can resume. Finished packs are deleted once installed.'))),
       h('div', { class: 'opt' },
-        h('div', { class: 'grow' }, h('div', {}, 'Mod list'), h('div', { class: 'help' }, 'Fetched from GitHub when the app starts.')),
-        h('button', { class: 'btn ghost', onclick: reload }, 'Refresh'))),
+        h('div', { class: 'grow' }, h('div', {}, 'Mod list'), h('div', { class: 'help' }, 'Checked for new mods and updates each time this app opens. Updates are never installed without you pressing Update.')),
+        h('button', { class: 'btn ghost', onclick: reload }, 'Check now')),
+      h('div', { class: 'opt' },
+        h('div', { class: 'grow' }, h('div', {}, 'Something went wrong?'), h('div', { class: 'help' },
+          'This app keeps a history of what it installed and every error it hit. Send it to whoever gave you the app: press Copy and paste it into a message, or Show file and attach it.')),
+        h('button', { class: 'btn ghost', onclick: async () => { if (await act(() => window.tmm.copyLog())) toast('History copied. Paste it into a message.'); } }, 'Copy'),
+        h('button', { class: 'btn ghost', onclick: () => act(() => window.tmm.showLog()) }, 'Show file'))),
   );
 }
 
@@ -385,7 +432,9 @@ async function install(ids, kind) {
       body: h('div', {},
         h('ul', {}, todo.map((s) => h('li', {}, `${s.name} v${s.version} — ${size(s.size)}`)), p.bepinex && h('li', {}, 'BepInEx (the mod loader) — 1 MB')),
         extra.length && h('p', {}, `${extra.map((s) => s.name).join(', ')} ${extra.length === 1 ? 'is' : 'are'} needed and will be ${extra.some((s) => s.action === 'update') ? 'updated' : 'installed'} too.`),
-        h('p', {}, `Total download: ${size(total)}.`)),
+        h('p', {}, `Total download: ${size(total)}.`),
+        // MEGA's free transfer cap (roughly 5 GB per few hours, per network — GUESS at the exact figure).
+        total > 3e9 && h('p', { class: 'meta' }, 'This is a big download. The download site limits how much one home network can download for free, so it may pause partway with a message saying so. If it does, wait a few hours and press Install again. It carries on from where it stopped.')),
       ok: kind === 'update' ? 'Update' : 'Install',
     });
     if (!ok) return;
@@ -398,7 +447,8 @@ async function install(ids, kind) {
   hideProgress();
   if (next) {
     S = next;
-    toast(kind === 'update' ? 'Updated' : kind === 'repair' ? 'Repaired' : `Installed ${todo.map((s) => s.name).join(', ')}`);
+    const done = kind === 'update' ? 'Updated' : kind === 'repair' ? 'Repaired' : `Installed ${todo.map((s) => s.name).join(', ')}`;
+    toast(`${done}. Press ▶ Play to start the game with your mods${S.platform === 'mac' ? ' (not Steam: on a Mac, Steam starts it without mods)' : ''}.`);
   } else await refresh();
   render();
 }
@@ -449,8 +499,9 @@ window.tmm.onEvent((ev) => {
     return working ? undefined : refresh();
   }
   if (!working) return; // only show progress for an install this window started
-  if (ev.type === 'step') showProgress(ev.label.startsWith('Installing') ? `${ev.label}…` : `Downloading ${ev.label}…`, null);
-  if (ev.type === 'progress') showProgress(`Downloading ${ev.label}…`, ev.done / ev.total, `${size(ev.done)} of ${size(ev.total)}`);
+  const of = ev.count > 1 ? ` (${ev.index} of ${ev.count})` : '';
+  if (ev.type === 'step') showProgress(ev.label.startsWith('Installing') ? `${ev.label}${of}…` : `Downloading ${ev.label}${of}…`, null);
+  if (ev.type === 'progress') showProgress(`Downloading ${ev.label}${of}…`, ev.done / ev.total, `${size(ev.done)} of ${size(ev.total)}`);
 });
 
 // --- wire-up -----------------------------------------------------------------
@@ -465,6 +516,7 @@ $('#tabs').addEventListener('click', (ev) => {
 $('#scrim').addEventListener('click', () => (view === 'config' ? leaveConfig(null) : closeDrawer()));
 $('#open-settings').addEventListener('click', () => { openId = null; view = 'settings'; renderDrawer(); });
 $('#play').addEventListener('click', play);
+$('#toast').addEventListener('click', () => { $('#toast').hidden = true; });
 $('#gamepath').addEventListener('click', () => act(() => window.tmm.showFolder()));
 document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('#modal').open && !$('#detail').hidden) $('#scrim').click(); });
 // Notice the game starting/stopping while the window is open.

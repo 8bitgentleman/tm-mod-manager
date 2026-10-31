@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { parseCfg, control, isAdvanced, applyEdits, validate, resetEdits } from '../src/config.js';
+import { parseCfg, control, isAdvanced, isAdvancedKey, applyEdits, validate, resetEdits } from '../src/config.js';
 
 const dir = new URL('./fixtures/cfg/', import.meta.url);
 const fixtures = Object.fromEntries(
@@ -194,4 +194,9 @@ test('isAdvanced', () => {
   for (const n of ['Debug', 'debug', 'Probe', 'FlipProbe', 'Sampler', 'Diagnostics', 'Harness', 'Debug Tools', 'Advanced'])
     assert.equal(isAdvanced(n), true, n);
   for (const n of ['General', 'Atmosphere', 'Logging.Disk', 'Circuit']) assert.equal(isAdvanced(n), false, n);
+});
+
+test('isAdvancedKey', () => {
+  for (const k of ['VerboseLogging', 'ScrollSelectDiagnostics', 'RiderTelemetry', 'DumpMenus']) assert.equal(isAdvancedKey(k), true, k);
+  for (const k of ['Enabled', 'SnowAmount', 'ShuffleAiRacers']) assert.equal(isAdvancedKey(k), false, k);
 });

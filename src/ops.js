@@ -41,15 +41,18 @@ export async function applySteps({ catalog, gameDir, ledger, platform, steps, zi
       onProgress: (done, total) => onEvent({ type: 'progress', label: 'BepInEx', done, total }),
     });
   }
+  const count = steps.filter((s) => s.action !== 'current').length;
+  let index = 0;
   for (const { entry, build, action } of steps) {
     if (action === 'current') { onEvent({ type: 'done', entry, action }); continue; }
-    onEvent({ type: 'step', entry, action, label: entry.name });
+    index += 1;
+    onEvent({ type: 'step', entry, action, label: entry.name, index, count });
     const zip = await fetchBuild(catalog, build, {
       localDir: zipsDir,
-      onProgress: (done, total) => onEvent({ type: 'progress', entry, label: entry.name, done, total }),
+      onProgress: (done, total) => onEvent({ type: 'progress', entry, label: entry.name, done, total, index, count }),
     });
     const platformKey = Object.keys(entry.builds).find((k) => entry.builds[k] === build);
-    onEvent({ type: 'step', entry, action, label: `Installing ${entry.name}` });
+    onEvent({ type: 'step', entry, action, label: `Installing ${entry.name}`, index, count });
     await installFiles(gameDir, ledger, { id: entry.id, version: entry.version, platform: platformKey, zip, files: build.files }, { force });
     // Packs run to gigabytes; a downloaded zip has done its job once installed.
     if (zip.startsWith(cacheDir())) await fsp.rm(zip, { force: true });

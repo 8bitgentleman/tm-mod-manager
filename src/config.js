@@ -26,7 +26,13 @@ const RANGE_RE = /^From\s+(\S+)\s+to\s+(\S+)\s*$/;
 const FLAGS_RE = /^#\s*Multiple values can be set at the same time/;
 
 /** Section names (substrings, case-insensitive) that hold developer knobs. A guess; tune freely. */
-export const ADVANCED_SECTIONS = ['Debug', 'Probe', 'FlipProbe', 'Sampler', 'Diagnostics', 'Harness', 'Advanced'];
+export const ADVANCED_SECTIONS = ['Debug', 'Probe', 'FlipProbe', 'Sampler', 'Diagnostics', 'Harness', 'Advanced',
+  // Plumbing a player can break things with: CharacterHook's asset-load gate,
+  // Radio Big's player address. Seen in the shipped cfgs, 2026-10-31.
+  'Gate', 'Server'];
+
+/** Single settings that are developer knobs even inside a player-facing section. A guess; tune freely. */
+const ADVANCED_KEY_RE = /verbose|diagnostic|probe|telemetry|harness|dump/i;
 
 const INT_BOUNDS = {
   SByte: [-128n, 127n], Byte: [0n, 255n],
@@ -110,6 +116,10 @@ export function control(setting) {
 export function isAdvanced(sectionName) {
   const n = String(sectionName).toLowerCase();
   return ADVANCED_SECTIONS.some((w) => n.includes(w.toLowerCase()));
+}
+
+export function isAdvancedKey(key) {
+  return ADVANCED_KEY_RE.test(String(key));
 }
 
 /** Returns an error string, or null when `value` is acceptable for `setting`. */
