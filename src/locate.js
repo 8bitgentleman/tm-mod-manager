@@ -11,11 +11,12 @@ const GAME_DIR = 'Tricky Madness';
 // Where Steam lives on Linux, most likely first. ~/.steam/steam is usually a
 // symlink to ~/.local/share/Steam (the Deck's layout); Flatpak Steam keeps its
 // own tree under ~/.var.
+// posix on purpose: these paths only exist on Linux, and the tests run on Windows too.
 export function linuxSteamRoots(home = os.homedir()) {
   return [
-    path.join(home, '.steam/steam'),
-    path.join(home, '.local/share/Steam'),
-    path.join(home, '.var/app/com.valvesoftware.Steam/.local/share/Steam'),
+    path.posix.join(home, '.steam/steam'),
+    path.posix.join(home, '.local/share/Steam'),
+    path.posix.join(home, '.var/app/com.valvesoftware.Steam/.local/share/Steam'),
   ];
 }
 
