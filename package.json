@@ -1,6 +1,6 @@
 {
   "name": "tm-mod-manager",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "description": "Installs, updates and removes Tricky Madness mods and map packs from the community catalog.",
   "type": "module",
   "license": "MIT",
