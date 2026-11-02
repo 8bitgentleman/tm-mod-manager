@@ -11,7 +11,7 @@ import { adopt } from '../src/adopt.js';
 import { uninstall } from '../src/install.js';
 import { plan, dependents, outdated } from '../src/resolve.js';
 import { bepinexState, BEPINEX } from '../src/bepinex.js';
-import { gameRunning, applySteps } from '../src/ops.js';
+import { gameRunning, applySteps, stepDownload } from '../src/ops.js';
 import { launchGame } from '../src/launch.js';
 import { hostPlatform, exists, safeJoin, cmpVersion } from '../src/util.js';
 import { parseCfg, applyEdits, validate, control, isAdvanced, isAdvancedKey } from '../src/config.js';
@@ -197,8 +197,14 @@ async function exclusive(fn) {
   }
 }
 
-function summarize(steps) {
-  return steps.map(({ entry, build, action }) => ({ id: entry.id, name: entry.name, version: entry.version, action, size: build.size }));
+// size is what the step downloads: a multi-part update skips the parts already
+// installed unchanged, so a code fix to Radio Big shows kilobytes, not its music.
+async function summarize(gameDir, ledger, steps) {
+  return Promise.all(steps.map(async (step) => {
+    const { entry, action } = step;
+    const size = action === 'current' ? 0 : (await stepDownload(gameDir, ledger, step)).size;
+    return { id: entry.id, name: entry.name, version: entry.version, action, size };
+  }));
 }
 
 const handlers = {
@@ -211,7 +217,7 @@ const handlers = {
     const ledger = await readLedger(gameDir);
     const steps = plan(catalog, ledger, ids, platform, { reinstall });
     const bepinex = (await bepinexState(gameDir)) === 'none' && steps.some((s) => s.action !== 'current');
-    return { steps: summarize(steps), bepinex };
+    return { steps: await summarize(gameDir, ledger, steps), bepinex };
   },
 
   install: (ids, { reinstall } = {}) => exclusive(async (gameDir) => {

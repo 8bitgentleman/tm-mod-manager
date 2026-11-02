@@ -4,7 +4,8 @@ import fsp from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fetchBuild, cacheDir } from './fetch.js';
-import { installFiles } from './install.js';
+import { installFiles, staleParts } from './install.js';
+import { partsOf } from './catalog.js';
 import { ensureBepInEx } from './bepinex.js';
 
 // Is the game in gameDir running? Mac matches the executable's path, so a game
@@ -39,6 +40,13 @@ export async function gameRunning(os_, gameDir, { run = promisify(execFile) } = 
   }
 }
 
+// What a step will download: the parts that aren't already installed unchanged
+// (all of them for a one-zip build that changed). { fetch, kept, size }.
+export async function stepDownload(gameDir, ledger, { entry, build, reinstall }) {
+  const { fetch, kept } = await staleParts(gameDir, ledger, entry.id, partsOf(build), { reinstall });
+  return { fetch, kept, size: fetch.reduce((n, p) => n + p.size, 0) };
+}
+
 // onEvent({type:'step'|'progress'|'done', entry, action, done, total})
 export async function applySteps({ catalog, gameDir, ledger, platform, steps, zipsDir, force, onEvent = () => {} }) {
   if (steps.some((s) => s.action !== 'current')) {
@@ -49,19 +57,31 @@ export async function applySteps({ catalog, gameDir, ledger, platform, steps, zi
   }
   const count = steps.filter((s) => s.action !== 'current').length;
   let index = 0;
-  for (const { entry, build, action } of steps) {
+  for (const step of steps) {
+    const { entry, build, action } = step;
     if (action === 'current') { onEvent({ type: 'done', entry, action }); continue; }
     index += 1;
     onEvent({ type: 'step', entry, action, label: entry.name, index, count });
-    const zip = await fetchBuild(catalog, build, {
-      localDir: zipsDir,
-      onProgress: (done, total) => onEvent({ type: 'progress', entry, label: entry.name, done, total, index, count }),
-    });
+    const { fetch, kept, size } = await stepDownload(gameDir, ledger, step);
+    // Progress spans every part this step downloads, as one bar.
+    const zips = [];
+    let before = 0;
+    for (const part of fetch) {
+      const base = before;
+      zips.push({
+        files: part.files,
+        zip: await fetchBuild(catalog, part, {
+          localDir: zipsDir,
+          onProgress: (done) => onEvent({ type: 'progress', entry, label: entry.name, done: base + done, total: size, index, count }),
+        }),
+      });
+      before += part.size;
+    }
     const platformKey = Object.keys(entry.builds).find((k) => entry.builds[k] === build);
     onEvent({ type: 'step', entry, action, label: `Installing ${entry.name}`, index, count });
-    await installFiles(gameDir, ledger, { id: entry.id, version: entry.version, platform: platformKey, zip, files: build.files }, { force });
+    await installFiles(gameDir, ledger, { id: entry.id, version: entry.version, platform: platformKey, parts: zips, kept }, { force });
     // Packs run to gigabytes; a downloaded zip has done its job once installed.
-    if (zip.startsWith(cacheDir())) await fsp.rm(zip, { force: true });
+    for (const { zip } of zips) if (zip.startsWith(cacheDir())) await fsp.rm(zip, { force: true });
     onEvent({ type: 'done', entry, action });
   }
 }

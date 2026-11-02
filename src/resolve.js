@@ -2,7 +2,7 @@ import { findEntry, pickBuild } from './catalog.js';
 import { satisfies, cmpVersion } from './util.js';
 
 // Ordered work list for installing `ids`: missing or too-old requirements first.
-// Each step: { entry, build, action: 'install'|'update'|'current' }.
+// Each step: { entry, build, action: 'install'|'update'|'current', reinstall }.
 export function plan(catalog, ledger, ids, platform, { reinstall = false } = {}) {
   const steps = [];
   const seen = new Set();
@@ -24,7 +24,7 @@ export function plan(catalog, ledger, ids, platform, { reinstall = false } = {})
     const have = ledger.entries[id];
     const action = !have ? 'install'
       : (cmpVersion(entry.version, have.version) !== 0 || reinstall) ? 'update' : 'current';
-    steps.push({ entry, build, action });
+    steps.push({ entry, build, action, reinstall });
   };
   for (const id of ids) visit(id, []);
   return steps;

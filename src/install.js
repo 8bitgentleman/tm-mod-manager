@@ -47,7 +47,10 @@ async function restoreBackup(gameDir, rel, log) {
   log(`  restored your earlier ${rel}`);
 }
 
-async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log }) {
+// sources: [{zip, files}], one per downloaded zip. Every zip is extracted and
+// checked before any file is placed, so a bad part leaves the old version whole.
+async function stageAndPlace(gameDir, ledger, id, sources, prev, { force, log }) {
+  const files = Object.assign({}, ...sources.map((s) => s.files));
   for (const rel of Object.keys(files)) {
     safeJoin(gameDir, rel);
     const owner = ownerOf(ledger, rel);
@@ -57,18 +60,22 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
   const stage = stagingDir(gameDir, id);
   await fsp.rm(stage, { recursive: true, force: true });
   try {
-    // dest paths grouped by zip member; a member listed twice is extracted once and copied.
-    const byMember = new Map();
-    for (const [rel, f] of Object.entries(files)) byMember.set(f.member, [...(byMember.get(f.member) || []), rel]);
-    const wanted = new Map([...byMember].map(([m, rels]) => [m, safeJoin(stage, rels[0])]));
-    const got = await extractMembers(zip, wanted);
-    for (const [m, rels] of byMember) {
-      const g = got.get(m);
-      if (!g) throw new Error(`zip is missing ${m}`);
-      for (const rel of rels) {
-        const f = files[rel];
-        if (f.sha256 && (g.sha256 !== f.sha256 || g.size !== f.size)) throw new Error(`${m} in the zip doesn't match the catalog`);
-        if (rel !== rels[0]) await fsp.copyFile(safeJoin(stage, rels[0]), safeJoin(stage, rel));
+    const got = new Map(); // install path -> what extractMembers reported for its member
+    for (const { zip, files: part } of sources) {
+      // dest paths grouped by zip member; a member listed twice is extracted once and copied.
+      const byMember = new Map();
+      for (const [rel, f] of Object.entries(part)) byMember.set(f.member, [...(byMember.get(f.member) || []), rel]);
+      const wanted = new Map([...byMember].map(([m, rels]) => [m, safeJoin(stage, rels[0])]));
+      const out = await extractMembers(zip, wanted);
+      for (const [m, rels] of byMember) {
+        const g = out.get(m);
+        if (!g) throw new Error(`zip is missing ${m}`);
+        for (const rel of rels) {
+          const f = part[rel];
+          if (f.sha256 && (g.sha256 !== f.sha256 || g.size !== f.size)) throw new Error(`${m} in the zip doesn't match the catalog`);
+          if (rel !== rels[0]) await fsp.copyFile(safeJoin(stage, rels[0]), safeJoin(stage, rel));
+          got.set(rel, g);
+        }
       }
     }
 
@@ -77,7 +84,7 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
     for (const [rel, f] of Object.entries(files)) {
       const dest = safeJoin(gameDir, rel);
       const staged = safeJoin(stage, rel);
-      const sha = f.sha256 || got.get(f.member).sha256;
+      const sha = f.sha256 || got.get(rel).sha256;
       if (isConfig(rel) && (await exists(dest))) {
         const onDisk = await sha256File(dest);
         const ours = prev?.files[rel];
@@ -99,7 +106,7 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
       // build under Proton, which ignores them — and chmod can fail outright on an
       // exFAT/NTFS SD card (GUESS from vfat semantics, not tried on a Deck).
       if (process.platform === 'darwin') {
-        await fsp.chmod(dest, f.exec || (got.get(f.member).mode & 0o111) ? 0o755 : 0o644);
+        await fsp.chmod(dest, f.exec || (got.get(rel).mode & 0o111) ? 0o755 : 0o644);
       }
       placed[rel] = sha;
     }
@@ -110,11 +117,17 @@ async function stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log
   }
 }
 
-// Install or update one entry from an already-downloaded, hash-checked zip.
+// Install or update one entry from already-downloaded, hash-checked zips.
 // files: catalog `files` map (install path -> {member, sha256, size, exec}).
-export async function installFiles(gameDir, ledger, { id, version, platform, zip, files }, { force = false, log = console.log } = {}) {
+// A one-zip entry passes zip + files; a multi-part one passes parts:
+// [{zip, files}] for the parts it downloaded and kept: {path: sha256} for the
+// files of the parts it skipped (already installed and unchanged, see staleParts).
+export async function installFiles(gameDir, ledger, { id, version, platform, zip, files, parts, kept = {} }, { force = false, log = console.log } = {}) {
   const prev = ledger.entries[id];
-  const { placed, replaced } = await stageAndPlace(gameDir, ledger, id, zip, files, prev, { force, log });
+  const sources = parts || [{ zip, files }];
+  const { placed: fresh, replaced } = await stageAndPlace(gameDir, ledger, id, sources, prev, { force, log });
+  const placed = { ...kept, ...fresh };
+  for (const rel of Object.keys(kept)) if (prev?.replaced?.includes(rel)) replaced.push(rel);
   // Files the previous version had and this one doesn't.
   for (const [rel, sha] of Object.entries(prev?.files || {})) {
     if (!(rel in placed)) {
@@ -124,6 +137,32 @@ export async function installFiles(gameDir, ledger, { id, version, platform, zip
   }
   ledger.entries[id] = { version, platform, files: placed, replaced };
   await writeLedger(gameDir, ledger);
+}
+
+// Which parts of a build an install has to download. A part is skipped when the
+// ledger says this entry already put every one of its files there with the
+// catalog's hash and each is still on disk at the catalog's size. Size, not a
+// re-hash: hashing a 1.3 GB music part on every update would be slow, and the
+// ledger hash already says the manager placed that exact file. A .cfg only has
+// to exist (the player may have edited it). Returns { fetch, kept } where kept
+// is {path: sha256} for the skipped parts' files.
+export async function staleParts(gameDir, ledger, id, parts, { reinstall = false } = {}) {
+  const have = ledger.entries[id];
+  const fetch = [];
+  const kept = {};
+  for (const p of parts) {
+    let fresh = Boolean(have) && !reinstall;
+    for (const [rel, f] of Object.entries(p.files)) {
+      if (!fresh) break;
+      if (!f.sha256 || have.files[rel] !== f.sha256) { fresh = false; break; }
+      let st;
+      try { st = await fsp.stat(safeJoin(gameDir, rel)); } catch { fresh = false; break; }
+      if (!st.isFile() || (!isConfig(rel) && st.size !== f.size)) fresh = false;
+    }
+    if (fresh) for (const [rel, f] of Object.entries(p.files)) kept[rel] = f.sha256;
+    else fetch.push(p);
+  }
+  return { fetch, kept };
 }
 
 export async function uninstall(gameDir, ledger, id, { log = console.log } = {}) {
