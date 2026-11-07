@@ -4,7 +4,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron'
 import path from 'node:path';
 import fsp from 'node:fs/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { loadCatalog, CATALOG_URL, pickBuild } from '../src/catalog.js';
+import { loadCatalog, CATALOG_URL, pickBuild, partsOf } from '../src/catalog.js';
 import { locateGame } from '../src/locate.js';
 import { readLedger } from '../src/ledger.js';
 import { adopt } from '../src/adopt.js';
@@ -108,7 +108,8 @@ function thumbUrl(rel) {
 }
 
 function sourceReady(build) {
-  return Boolean(zipsDir() || catalog.sources?.[build.source]?.link);
+  // A multi-part build (schema 2) has no `source` of its own; each part names one.
+  return Boolean(zipsDir() || partsOf(build).every((p) => catalog.sources?.[p.source]?.link));
 }
 
 // Mods installed by hand before the manager: recorded in the background so a
