@@ -119,9 +119,8 @@ Useful environment variables:
    git tag v0.2.0 && git push origin v0.2.0
    ```
 3. GitHub Actions builds the Mac dmg, the Windows installer and the Linux
-   AppImage, then attaches them to a **draft** release.
-4. Check the draft and publish it. Apps already installed only see the release
-   once it is published.
+   AppImage and publishes the release once all three are attached. If any
+   build fails the release stays a draft, which installed apps ignore.
 
 ## License
 

@@ -1,6 +1,7 @@
 # Push a tag like v0.2.0 (matching package.json's version) to build the Mac dmg, the
-# Windows installer and the Linux AppImage (Steam Deck) and attach them to a draft
-# GitHub Release. Review the draft, then publish it; the app's update check ignores drafts.
+# Windows installer and the Linux AppImage (Steam Deck), then publish the GitHub Release.
+# The three builds upload to a draft and `publish` only flips it live once all three
+# succeeded, so a release never goes out with one platform's installer missing.
 name: release
 on:
   push:
@@ -25,5 +26,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
