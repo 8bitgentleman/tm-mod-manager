@@ -200,3 +200,34 @@ test('isAdvancedKey', () => {
   for (const k of ['VerboseLogging', 'ScrollSelectDiagnostics', 'RiderTelemetry', 'DumpMenus']) assert.equal(isAdvancedKey(k), true, k);
   for (const k of ['Enabled', 'SnowAmount', 'ShuffleAiRacers']) assert.equal(isAdvancedKey(k), false, k);
 });
+
+test('ensureManagerHidden turns HideManagerGameObject on, and only when BepInEx 5 is there', async () => {
+  const { ensureManagerHidden } = await import('../src/bepinex.js');
+  const fsp = await import('node:fs/promises');
+  const os = await import('node:os');
+  const p = await import('node:path');
+  const g = await fsp.mkdtemp(p.join(os.tmpdir(), 'tm-hide-'));
+  const cfg = p.join(g, 'BepInEx', 'config', 'BepInEx.cfg');
+
+  assert.equal(await ensureManagerHidden(g), false, 'no BepInEx: leave the folder alone');
+
+  await fsp.mkdir(p.join(g, 'BepInEx', 'core'), { recursive: true });
+  await fsp.writeFile(p.join(g, 'BepInEx', 'core', 'BepInEx.dll'), '');
+  assert.equal(await ensureManagerHidden(g), true, 'no cfg yet: write the stub');
+  assert.match(await fsp.readFile(cfg, 'utf8'), /^\[Chainloader\]\n\nHideManagerGameObject = true\n$/);
+
+  const real = (await fsp.readFile(new URL('./fixtures/cfg/BepInEx.cfg', import.meta.url), 'utf8'))
+    .replace('HideManagerGameObject = true', 'HideManagerGameObject = false');
+  assert.match(real, /HideManagerGameObject = false/);
+  await fsp.writeFile(cfg, real);
+  assert.equal(await ensureManagerHidden(g), true, 'real cfg at false: flip it');
+  const after = await fsp.readFile(cfg, 'utf8');
+  assert.equal(find(parseCfg(after), 'Chainloader', 'HideManagerGameObject').value, 'true');
+  assert.equal(after.split(/\r?\n/).length, real.split(/\r?\n/).length, 'nothing else touched');
+  assert.equal(await ensureManagerHidden(g), false, 'already on: no write');
+
+  await fsp.writeFile(cfg, '[Logging]\nLogLevels = All');
+  assert.equal(await ensureManagerHidden(g), true, 'key missing: append it');
+  assert.equal(find(parseCfg(await fsp.readFile(cfg, 'utf8')), 'Chainloader', 'HideManagerGameObject').value, 'true');
+  await fsp.rm(g, { recursive: true });
+});

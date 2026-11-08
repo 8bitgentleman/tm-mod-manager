@@ -5,6 +5,7 @@ import { fetchUrl } from './fetch.js';
 import { listMembers } from './zip.js';
 import { installFiles } from './install.js';
 import { writeLedger } from './ledger.js';
+import { parseCfg, applyEdits } from './config.js';
 
 // Pinned: the version every pack is tested on. Bump deliberately, with new hashes.
 export const BEPINEX = {
@@ -49,5 +50,34 @@ export async function ensureBepInEx(gameDir, ledger, platform, { log = console.l
     ledger.entries.bepinex.files[rel] = await sha256File(sh);
     await writeLedger(gameDir, ledger);
   }
+  return true;
+}
+
+// CharacterHook keeps every ported rider on BepInEx's manager object. On some
+// installs (a Windows user, 2026-09; a Steam Deck under Proton, 2026-11) the game
+// destroys that object when the menu loads: riders vanish and races black-screen.
+// BepInEx's own HideManagerGameObject protects it, so we always turn it on.
+// BepInEx.cfg only exists after the game's first launch; before that we write a
+// stub holding just this key, and BepInEx keeps the value when it fills in the
+// rest (GUESS from BepInEx 5's ConfigFile, which adopts orphaned values on Bind —
+// not tested on a fresh install). Returns true if the file changed.
+export async function ensureManagerHidden(gameDir) {
+  if ((await bepinexState(gameDir)) !== '5.x') return false;
+  const cfg = path.join(gameDir, 'BepInEx', 'config', 'BepInEx.cfg');
+  const want = 'true';
+  if (!(await exists(cfg))) {
+    await fsp.mkdir(path.dirname(cfg), { recursive: true });
+    await fsp.writeFile(cfg, `[Chainloader]\n\nHideManagerGameObject = ${want}\n`);
+    return true;
+  }
+  const text = await fsp.readFile(cfg, 'utf8');
+  const sec = parseCfg(text).sections.filter((s) => s.name === 'Chainloader');
+  const setting = sec.flatMap((s) => s.settings).findLast((s) => s.key === 'HideManagerGameObject');
+  if (setting && setting.value.toLowerCase() === want) return false;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const next = setting
+    ? applyEdits(text, [{ section: 'Chainloader', key: 'HideManagerGameObject', value: want }])
+    : `${text}${text.endsWith('\n') || text === '' ? '' : eol}${eol}[Chainloader]${eol}${eol}HideManagerGameObject = ${want}${eol}`;
+  await fsp.writeFile(cfg, next);
   return true;
 }

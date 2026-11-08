@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { exists } from './util.js';
 import { APP_ID } from './locate.js';
+import { ensureManagerHidden } from './bepinex.js';
 
 // Mac: BepInEx only loads through run_bepinex.sh (Doorstop), and the script must be
 // spawned by a real process API — `open -a Terminal` silently did nothing.
@@ -14,6 +15,8 @@ import { APP_ID } from './locate.js';
 // os is the host OS ('mac' | 'windows' | 'linux').
 // Returns how it launched, so the caller can tell the player.
 export async function launchGame(gameDir, os_, { openUrl } = {}) {
+  // Catches installs made before the manager set it, or edited back since.
+  await ensureManagerHidden(gameDir);
   if (os_ === 'linux') {
     const url = `steam://rungameid/${APP_ID}`;
     if (openUrl) await openUrl(url);

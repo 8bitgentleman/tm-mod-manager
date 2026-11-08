@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { fetchBuild, cacheDir } from './fetch.js';
 import { installFiles, staleParts } from './install.js';
 import { partsOf } from './catalog.js';
-import { ensureBepInEx } from './bepinex.js';
+import { ensureBepInEx, ensureManagerHidden } from './bepinex.js';
 
 // Is the game in gameDir running? Mac matches the executable's path, so a game
 // running from another install folder doesn't count (the process is named
@@ -55,6 +55,7 @@ export async function applySteps({ catalog, gameDir, ledger, platform, steps, zi
       onProgress: (done, total) => onEvent({ type: 'progress', label: 'BepInEx', done, total }),
     });
   }
+  await ensureManagerHidden(gameDir);
   const count = steps.filter((s) => s.action !== 'current').length;
   let index = 0;
   for (const step of steps) {
